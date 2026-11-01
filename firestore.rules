@@ -5,7 +5,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() { return request.auth != null; }
+    function signedIn() { return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous'; }
     function email() { return request.auth.token.get('email', ''); }
     function isAdmin() {
       return signedIn() && email() != '' && request.auth.token.get('email_verified', false) == true
@@ -16,6 +16,7 @@ service cloud.firestore {
       let s = sessionData(id);
       return s.status == 'open' && (s.get('opensAtTs', null) == null || request.time >= s.opensAtTs);
     }
+    function validName(n) { return n is string && n.size() > 0 && n.size() <= 60; }
 
     // Organizer list: maintained by hand in the console. Each person may only check their own entry.
     match /admins/{adminEmail} {
@@ -33,44 +34,67 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Skill ratings and team pairs: organizers only.
+    // Player profiles: created once by the player with a level of 1 to 5.
+    // Afterwards the player may only change their name; the level is the organizer's to change.
+    match /players/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'level', 'email', 'createdAt'])
+        && validName(request.resource.data.name)
+        && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5
+        && request.resource.data.email == email()
+        && request.resource.data.createdAt == request.time;
+      allow update: if (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['level', 'name'])
+          && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5)
+        || (signedIn() && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+          && validName(request.resource.data.name));
+      allow delete: if isAdmin();
+    }
+
+    // Skill ratings for people the organizer added by hand, and team pairs: organizers only.
     match /ratings/{doc} {
       allow read, write: if isAdmin();
     }
 
-    // Emails: written by the player together with their sign-up, readable by organizers only.
+    // Emails of people the organizer added by hand: organizers only.
     match /contacts/{signupId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() || (signedIn()
-        && getAfter(/databases/$(database)/documents/signups/$(signupId)).data.uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['email', 'sessionId'])
-        && request.resource.data.email is string && request.resource.data.email.size() <= 120);
-      allow update, delete: if isAdmin();
+      allow read, write: if isAdmin();
     }
 
-    // Sign-ups: anyone can read the list. Players add themselves (and guests) while the session is open,
-    // and can only mark their own entry as left. Organizers can change anything.
+    // Sign-ups: anyone can read the list. A logged-in player with a profile adds themselves
+    // (one entry per session, ID = sessionId_uid) while the session is open, can leave,
+    // and can rejoin at the back of the queue. Organizers can change anything.
     match /signups/{id} {
       allow read: if true;
       allow create: if isAdmin() || (signedIn()
+        && id == request.resource.data.sessionId + '_' + request.auth.uid
         && request.resource.data.keys().hasOnly(['sessionId', 'name', 'uid', 'createdAt', 'status', 'paid', 'noshow', 'guestOf', 'addedBy'])
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && exists(/databases/$(database)/documents/players/$(request.auth.uid))
+        && validName(request.resource.data.name)
         && request.resource.data.status == 'active'
         && request.resource.data.paid == false && request.resource.data.noshow == false
-        && request.resource.data.addedBy == 'self'
+        && request.resource.data.guestOf == '' && request.resource.data.addedBy == 'self'
         && request.resource.data.createdAt == request.time
-        && request.resource.data.guestOf is string
-        && (request.resource.data.guestOf == ''
-            || get(/databases/$(database)/documents/signups/$(request.resource.data.guestOf)).data.uid == request.auth.uid)
         && sessionOpen(request.resource.data.sessionId));
       allow update: if isAdmin() || (signedIn()
-        && resource.data.uid == request.auth.uid
-        && resource.data.status == 'active'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'leftAt'])
-        && request.resource.data.status == 'left'
-        && request.resource.data.leftAt == request.time
-        && sessionData(resource.data.sessionId).status == 'open');
+        && resource.data.uid == request.auth.uid && resource.data.addedBy == 'self'
+        && sessionData(resource.data.sessionId).status == 'open'
+        && (
+          // leave
+          (resource.data.status == 'active'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'leftAt'])
+            && request.resource.data.status == 'left' && request.resource.data.leftAt == request.time)
+          ||
+          // rejoin: goes to the back of the queue
+          (resource.data.status == 'left'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'createdAt', 'name'])
+            && request.resource.data.status == 'active' && request.resource.data.createdAt == request.time
+            && validName(request.resource.data.name)
+            && sessionOpen(resource.data.sessionId))
+        ));
       allow delete: if isAdmin();
     }
   }
