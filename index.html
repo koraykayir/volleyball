@@ -184,6 +184,23 @@ details.help{font-size:14px}
 .dotlive.error{background:var(--bad)}
 .status.bad{color:var(--bad)}
 .orghead .orgwho{flex:1 1 auto; text-align:right; overflow-wrap:anywhere}
+.status .acct{overflow-wrap:anywhere; text-align:right}
+.authcard h3{font:700 26px/1.1 var(--display)}
+.levels{display:grid; grid-template-columns:repeat(5,1fr); gap:6px}
+@media (max-width:480px){.levels{grid-template-columns:1fr}}
+.lvl{display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left; padding:9px 10px; border-radius:var(--radius); border:1px solid var(--line); background:var(--surface); color:var(--fg); cursor:pointer; font:inherit}
+.lvl b{font:700 20px/1 var(--display)}
+.lvl span{font-weight:600; font-size:13.5px}
+.lvl small{font-size:12px; color:var(--muted); line-height:1.3}
+.lvl.sel{border-color:var(--court); background:var(--court); color:var(--court-ink)}
+.lvl.sel small{color:var(--court-ink); opacity:.85}
+.lvl:focus-visible{outline:2px solid var(--zone); outline-offset:2px}
+@media (max-width:480px){.lvl{flex-direction:row; align-items:baseline; gap:10px}}
+.or{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px}
+.or::before,.or::after{content:""; flex:1; height:1px; background:var(--line)}
+.gbtn{background:var(--surface); color:var(--fg); border-color:var(--line); display:flex; align-items:center; justify-content:center; gap:10px}
+.gbtn:hover{background:var(--soft); border-color:var(--line)}
+.gbtn .g{font:700 18px/1 Arial,sans-serif; color:var(--court)}
 </style>
 <!--artifact:head-end-->
 </head>
@@ -257,7 +274,7 @@ function courtSummary(ev) {
    contacts/{signupId}   { email, sessionId }        organizers only
    ratings/{nameLower}   { name, r }  ratings/_pairs { together, apart }   organizers only
    admins/{email}        added by hand in the Firebase console */
-function emptyData(mode) { return { mode, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, pairs: { together: '', apart: '' }, user: null, example: false }; }
+function emptyData(mode) { return { mode, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false }; }
 function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', duration: s.duration || 120 }; }
 function buildVM(d) {
   const cfg = d.config || {}; const curId = cfg.currentSessionId || null;
@@ -267,7 +284,7 @@ function buildVM(d) {
   const uid = d.user && d.user.uid;
   const sign = cur ? (d.signups || []).filter(x => x.sessionId === cur.id).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || String(a.id).localeCompare(String(b.id))) : [];
   sign.forEach(x => {
-    st.people.set(x.id, { key: x.id, name: normName(x.name), email: (d.contacts || {})[x.id] || '', ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active', paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
+    st.people.set(x.id, { key: x.id, name: normName(x.name), email: (d.contacts || {})[x.id] || (x.addedBy === 'self' && (d.players || {})[x.uid] ? (d.players[x.uid].email || '') : ''), ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active', paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
   });
   st.attendees = sign.map(x => st.people.get(x.id)).filter(p => p.active);
   const mine = uid ? st.attendees.find(p => p.uid === uid && !p.guestOf && p.addedBy !== 'organizer') : null;
@@ -278,7 +295,7 @@ function buildVM(d) {
   st.history = sessions.filter(s => s.id !== curId).map(s => ({ id: s.id, event: sessionEvent(s), attendees: s.summary && Array.isArray(s.summary.attendees) ? s.summary.attendees : [], roster: s.roster && Array.isArray(s.roster.t) ? s.roster : null, played: s.status === 'played', doneTs: s.playedAt ? new Date(s.playedAt).toISOString() : '' }));
   return st;
 }
-function summaryOf(vm, noshowExtra) { return { attendees: vm.attendees.map(p => ({ key: p.key, name: p.name, paid: !!p.paid, noshow: !!(p.noshow || (noshowExtra && noshowExtra[p.key])), guestOf: p.guestOf || '' })) }; }
+function summaryOf(vm, noshowExtra) { return { attendees: vm.attendees.map(p => ({ key: p.key, uid: p.addedBy === 'self' ? p.uid : '', name: p.name, paid: !!p.paid, noshow: !!(p.noshow || (noshowExtra && noshowExtra[p.key])), guestOf: p.guestOf || '' })) }; }
 
 /* ================= state ================= */
 const S = {
@@ -287,6 +304,7 @@ const S = {
   ui: {
     joinName: '', joinEmail: '', joinErr: '', dup: null, leaveConfirm: false, guestOpen: false, guestName: '',
     orgOpen: false, orgErr: '', orgBusy: false,
+    authOpen: false, authMode: 'login', authErr: '', authInfo: '', authBusy: false, auName: '', auEmail: '', auPass: '', auLevel: 0, pfName: null, pfLevel: 0,
     addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false,
     ev: null, evDirty: false,
     roster: { mode: 'closed', sel: null, id: null }, ratingsOpen: false,
@@ -300,6 +318,12 @@ function loadFirebaseConfig() {
 }
 function onData(d) {
   S.data = d; S.cfg = Object.assign({}, d.config || {}); S.skills = Object.assign({}, d.ratings || {});
+  const pl = d.players || {}; const lv = (uid, name) => { if (uid && pl[uid] && pl[uid].level) S.skills[String(name).toLowerCase()] = pl[uid].level; };
+  (d.signups || []).forEach(x => { if (x.addedBy === 'self') lv(x.uid, normName(x.name)); });
+  (d.sessions || []).forEach(s => ((s.summary && s.summary.attendees) || []).forEach(a => lv(a.uid, a.name)));
+  const who = (d.user ? d.user.uid : '') + '|' + (d.profile ? 1 : 0);
+  if (who !== S.who) { S.who = who; const a = document.activeElement; if (a && a.blur && $('#app') && $('#app').contains(a)) a.blur(); }
+  if (d.user) { U().authOpen = false; U().auPass = ''; }
   if (!pairsTimer) S.pairs = Object.assign({ together: '', apart: '' }, d.pairs || {});
   S.vm = buildVM(d); render();
 }
@@ -352,13 +376,29 @@ function balanceTeams(ctx) {
 const FB_VERSION = '10.12.2';
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
-  if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'Anonymous sign-in is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
+  if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'This sign-in method is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
   if (/unauthorized-domain/.test(c)) return 'This website may not sign in yet. Add it in Firebase → Authentication → Settings → Authorized domains.';
   if (/popup-closed|cancelled-popup/.test(c)) return 'Sign-in was cancelled.';
+  if (/vb\/not-logged-in/.test(c)) return 'Please log in first.';
   if (/permission-denied/.test(c)) return where === 'join' ? 'The list did not accept this. Sign-ups may be closed or not open yet.' : where === 'read' ? 'Firebase refused to show the data. Check that the security rules are published.' : 'Firebase refused this change. Are you signed in as an organizer?';
   if (/not-found|failed-precondition/.test(c) && /database/i.test(m)) return 'The Firestore database does not exist yet. Create it in Firebase → Firestore Database.';
   if (/unavailable|network-request-failed/.test(c)) return 'No connection to Firebase right now. Try again in a moment.';
   return m;
+}
+function authText(e) {
+  const c = String((e && e.code) || '');
+  if (/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c)) return 'Wrong email or password.';
+  if (/email-already-in-use/.test(c)) return 'There is already an account with this email. Log in instead, or use "Forgot password?".';
+  if (/weak-password/.test(c)) return 'Use a password with at least 6 characters.';
+  if (/invalid-email/.test(c)) return 'That email doesn\'t look right.';
+  if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes and try again.';
+  if (/operation-not-allowed/.test(c)) return 'This way of logging in is switched off in Firebase (Authentication → Sign-in method).';
+  return S.data.mode === 'firebase' ? fbExplain(e, 'auth') : ((e && e.message) || 'Something went wrong');
+}
+async function authRun(fn) {
+  const ui = U(); ui.authBusy = true; ui.authErr = ''; render();
+  try { await fn(); ui.authBusy = false; render(); return true; }
+  catch (e) { ui.authBusy = false; ui.authErr = authText(e); render(); return false; }
 }
 async function run(fn, where) {
   try { return await fn(); }
@@ -366,7 +406,7 @@ async function run(fn, where) {
 }
 
 function firebaseBackend(conf) {
-  const d = emptyData('firebase'); let fs = null, auth = null, cb = null, subSid, unsubSign = null, adminUnsubs = [];
+  const d = emptyData('firebase'); let fs = null, auth = null, cb = null, subSid, unsubSign = null, adminUnsubs = [], unsubProfile = null;
   const emit = () => cb && cb(Object.assign({}, d));
   const TS = () => firebase.firestore.FieldValue.serverTimestamp();
   const ms = v => v && typeof v.toMillis === 'function' ? v.toMillis() : (typeof v === 'number' ? v : null);
@@ -384,8 +424,9 @@ function firebaseBackend(conf) {
   }
   function adminSubs() {
     adminUnsubs.forEach(f => f()); adminUnsubs = [];
-    if (!(d.user && d.user.isAdmin)) { d.contacts = {}; d.ratings = {}; d.pairs = { together: '', apart: '' }; return; }
+    if (!(d.user && d.user.isAdmin)) { d.contacts = {}; d.ratings = {}; d.players = {}; d.pairs = { together: '', apart: '' }; return; }
     adminUnsubs.push(fs.collection('contacts').onSnapshot(snap => { const c = {}; snap.docs.forEach(x => { c[x.id] = (x.data() || {}).email || ''; }); d.contacts = c; emit(); }, () => {}));
+    adminUnsubs.push(fs.collection('players').onSnapshot(snap => { const p = {}; snap.docs.forEach(x => { p[x.id] = x.data() || {}; }); d.players = p; emit(); }, () => {}));
     adminUnsubs.push(fs.collection('ratings').onSnapshot(snap => {
       const r = {}; let pairs = { together: '', apart: '' };
       snap.docs.forEach(x => { const v = x.data() || {}; if (x.id === '_pairs') pairs = { together: v.together || '', apart: v.apart || '' }; else if (v.r) r[x.id] = v.r; });
@@ -393,12 +434,21 @@ function firebaseBackend(conf) {
     }, () => {}));
   }
   async function setUser(u) {
-    if (!u) { d.user = null; adminSubs(); emit(); return; }
-    const user = { uid: u.uid, email: u.email || '', anon: !!u.isAnonymous, isAdmin: false };
+    if (unsubProfile) { unsubProfile(); unsubProfile = null; }
+    if (!u || u.isAnonymous) { d.user = null; d.profile = null; d.profileLoaded = true; adminSubs(); emit(); return; }
+    const user = { uid: u.uid, email: u.email || '', displayName: u.displayName || '', isAdmin: false, provider: (u.providerData && u.providerData[0] && u.providerData[0].providerId) || '' };
+    d.profileLoaded = false; d.profile = null;
     if (u.email) { try { const s = await fs.collection('admins').doc(u.email).get(); user.isAdmin = !!s.exists; } catch (e) { user.isAdmin = false; } }
-    d.user = user; d.authError = ''; adminSubs(); emit();
+    d.user = user; d.authError = ''; adminSubs();
+    unsubProfile = fs.collection('players').doc(u.uid).onSnapshot(s => { d.profile = s.exists ? (s.data() || {}) : null; d.profileLoaded = true; emit(); }, () => { d.profileLoaded = true; emit(); });
+    emit();
   }
-  async function ensureUser() { if (auth.currentUser) return auth.currentUser; const r = await auth.signInAnonymously(); return r.user; }
+  const me = () => { if (!auth.currentUser || auth.currentUser.isAnonymous) throw Object.assign(new Error('Please log in first.'), { code: 'vb/not-logged-in' }); return auth.currentUser; };
+  async function google(fn) {
+    const provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
+    try { await auth.signInWithPopup(provider); }
+    catch (e) { if (/popup-blocked|operation-not-supported-in-this-environment/.test(String(e && e.code))) { await auth.signInWithRedirect(provider); return; } throw e; }
+  }
   return {
     mode: 'firebase', projectId: conf.projectId,
     async start(onChange) {
@@ -412,20 +462,18 @@ function firebaseBackend(conf) {
         d.sessions = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'estimate' }) || {}; const o = Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), playedAt: ms(v.playedAt) }); delete o.opensAtTs; return o; });
         d.sessionsLoaded = true; d.status = snap.metadata.fromCache ? 'offline' : 'live'; d.error = ''; emit();
       }, readFail);
-      auth.onAuthStateChanged(u => {
-        if (!u) { setUser(null); auth.signInAnonymously().catch(e => { d.authError = fbExplain(e, 'auth'); emit(); }); return; }
-        setUser(u);
-      });
+      auth.onAuthStateChanged(u => { setUser(u); });
       try { await auth.getRedirectResult(); } catch (e) { d.authError = fbExplain(e, 'auth'); emit(); }
     },
-    async join({ sessionId, name, email, guestOf }) {
-      const u = await ensureUser(); const ref = fs.collection('signups').doc(); const b = fs.batch();
-      b.set(ref, { sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: guestOf || '', addedBy: 'self' });
-      if (email) b.set(fs.collection('contacts').doc(ref.id), { email, sessionId });
-      await b.commit(); return ref.id;
+    async join({ sessionId, name }) {
+      const u = me(); const ref = fs.collection('signups').doc(sessionId + '_' + u.uid);
+      const existing = (d.signups || []).find(x => x.id === ref.id);
+      if (existing && existing.status === 'left') await ref.update({ status: 'active', createdAt: TS(), name });
+      else await ref.set({ sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' });
+      return ref.id;
     },
     async adminAdd({ sessionId, name, email }) {
-      const u = await ensureUser(); const ref = fs.collection('signups').doc(); const b = fs.batch();
+      const u = me(); const ref = fs.collection('signups').doc(); const b = fs.batch();
       b.set(ref, { sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'organizer' });
       if (email) b.set(fs.collection('contacts').doc(ref.id), { email, sessionId });
       await b.commit(); return ref.id;
@@ -445,18 +493,22 @@ function firebaseBackend(conf) {
     reopen(sid) { return fs.collection('sessions').doc(sid).update({ status: 'open', playedAt: null }); },
     saveConfig(patch) { return fs.collection('config').doc('app').set(patch, { merge: true }); },
     setRating(n, name, r) { const ref = fs.collection('ratings').doc(n); return r ? ref.set({ name, r }) : ref.delete(); },
+    setLevel(uid, level) { return fs.collection('players').doc(uid).update({ level }); },
     savePairs(p) { return fs.collection('ratings').doc('_pairs').set({ together: p.together || '', apart: p.apart || '' }); },
-    async signIn() {
-      const provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
-      const cur = auth.currentUser;
-      try {
-        if (cur && cur.isAnonymous) {
-          try { await cur.linkWithPopup(provider); }
-          catch (e) { if (/credential-already-in-use|email-already-in-use/.test(String(e && e.code)) && e.credential) await auth.signInWithCredential(e.credential); else throw e; }
-        } else await auth.signInWithPopup(provider);
-      } catch (e) { if (/popup-blocked|operation-not-supported-in-this-environment/.test(String(e && e.code))) { await auth.signInWithRedirect(provider); return; } throw e; }
-      if (auth.currentUser) { await auth.currentUser.getIdToken(true); await setUser(auth.currentUser); }
+    // ---- accounts
+    signInGoogle() { return google(); },
+    async signInEmail(email, password) { await auth.signInWithEmailAndPassword(email, password); },
+    async register({ email, password, name, level }) {
+      const r = await auth.createUserWithEmailAndPassword(email, password);
+      try { await r.user.updateProfile({ displayName: name }); } catch (e) {}
+      await fs.collection('players').doc(r.user.uid).set({ name, level, email: r.user.email || email, createdAt: TS() });
     },
+    async saveProfile({ name, level }) {
+      const u = me();
+      if (d.profile) await fs.collection('players').doc(u.uid).update({ name });
+      else await fs.collection('players').doc(u.uid).set({ name, level, email: u.email || '', createdAt: TS() });
+    },
+    resetPassword(email) { return auth.sendPasswordResetEmail(email); },
     signOut() { return auth.signOut(); }
   };
 }
@@ -465,35 +517,49 @@ function seedLocalDb() {
   const d = new Date(); const dow = d.getDay(); let add = (4 - dow + 7) % 7; if (add === 0) add = 7; d.setDate(d.getDate() + add);
   const date = localDateStr(d); const prev = new Date(d); prev.setDate(prev.getDate() - 7); const pdate = localDateStr(prev);
   const t0 = Date.now() - 20 * 3600e3; const tp = t0 - 7 * 24 * 3600e3; let n = 0; const nid = () => 'x' + (++n);
-  const db = { example: true, config: { title: 'Volleyball', currentSessionId: date }, sessions: {}, signups: {}, contacts: {}, ratings: {}, pairs: { together: '', apart: '' } };
+  const db = { example: true, config: { title: 'Volleyball', currentSessionId: date }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, accounts: {}, pairs: { together: '', apart: '' } };
+  const names = ['Ana', 'Jonas', 'Mia', 'Luca', 'Elif', 'Tom', 'Sara', 'Niko', 'Lena', 'Paul', 'Omar', 'Julia', 'Felix', 'Nora', 'Emre', 'Lisa'];
+  const levels = [4, 2, 5, 3, 3, 2, 4, 3, 2, 4, 5, 1, 3, 3, 2, 4];
+  names.forEach((name, i) => { db.players['demo-' + i] = { name, level: levels[i], email: name.toLowerCase() + '@example.com' }; });
+  const uidOf = name => 'demo-' + names.indexOf(name);
   const pnames = ['Mia', 'Ana', 'Niko', 'Luca', 'Sara', 'Jonas', 'Elif', 'Paul', 'Lena'];
-  const patt = pnames.map((name, i) => ({ key: nid(), name, paid: i < 8, noshow: false, guestOf: '' }));
+  const patt = pnames.map((name, i) => ({ key: nid(), uid: uidOf(name), name, paid: i < 8, noshow: false, guestOf: '' }));
   db.sessions[pdate] = { id: pdate, date: pdate, time: '19:00', place: 'Sporthalle', courts: 1, format: '4v4', courtsList: ['4v4'], price: '8 €', note: '', opensAt: '', duration: 120, status: 'played', playedAt: tp + 30 * 3600e3, roster: { t: [['Mia', 'Luca', 'Elif', 'Paul'], ['Ana', 'Niko', 'Sara', 'Jonas']], b: ['Lena'] }, summary: { attendees: patt }, createdAt: tp - 3600e3 };
   db.sessions[date] = { id: date, date, time: '19:00', place: 'Sporthalle', courts: 2, format: 'mixed', courtsList: ['4v4', '3v3'], price: '8 €', note: '', opensAt: '', duration: 120, status: 'open', playedAt: null, roster: null, summary: null, createdAt: t0 - 3600e3 };
-  const names = ['Ana', 'Jonas', 'Mia', 'Luca', 'Elif', 'Tom', 'Sara', 'Niko', 'Lena', 'Paul', 'Omar', 'Julia', 'Felix', 'Nora', 'Emre', 'Lisa'];
   const paid = ['Ana', 'Mia', 'Elif', 'Jonas', 'Luca', 'Sara', 'Omar', 'Julia'];
-  names.forEach((name, i) => { const k = nid(); db.signups[k] = { id: k, sessionId: date, name, uid: 'demo-' + i, createdAt: t0 + i * 7 * 60e3, status: name === 'Tom' ? 'left' : 'active', paid: paid.includes(name), noshow: false, guestOf: '', addedBy: 'self' }; });
+  names.forEach((name, i) => { const k = date + '_demo-' + i; db.signups[k] = { id: k, sessionId: date, name, uid: 'demo-' + i, createdAt: t0 + i * 7 * 60e3, status: name === 'Tom' ? 'left' : 'active', paid: paid.includes(name), noshow: false, guestOf: '', addedBy: 'self' }; });
   return db;
 }
 function localBackend() {
-  const KEY = 'vb.localdb'; let db = store.get(KEY, null); if (!db || !db.sessions) db = seedLocalDb();
-  let admin = !!store.get('vb.localAdmin', false); let uid = store.get('vb.localUid', null); if (!uid) { uid = 'u' + randomHex(10); store.set('vb.localUid', uid); }
+  const KEY = 'vb.localdb'; let db = store.get(KEY, null); if (!db || !db.sessions || !db.players) db = seedLocalDb();
+  let admin = !!store.get('vb.localAdmin', false); let session = store.get('vb.localSession', null);
   let cb = null; let seq = 0;
   const copy = o => JSON.parse(JSON.stringify(o));
+  const err = (code, msg) => Object.assign(new Error(msg), { code });
   const snapshot = () => {
     const d = emptyData('local'); d.status = 'local'; d.configLoaded = d.sessionsLoaded = true; d.example = !!db.example;
     d.config = copy(db.config); d.sessions = Object.values(copy(db.sessions)); d.signups = Object.values(copy(db.signups));
-    d.contacts = admin ? copy(db.contacts) : {}; d.ratings = admin ? copy(db.ratings) : {}; d.pairs = admin ? copy(db.pairs) : { together: '', apart: '' };
-    d.user = { uid, email: admin ? 'demo organizer' : '', anon: !admin, isAdmin: admin }; return d;
+    d.contacts = admin ? copy(db.contacts) : {}; d.ratings = admin ? copy(db.ratings) : {}; d.players = admin ? copy(db.players) : {}; d.pairs = admin ? copy(db.pairs) : { together: '', apart: '' };
+    const acc = session && db.accounts[session];
+    if (acc) { d.user = { uid: acc.uid, email: acc.email, displayName: acc.name || '', isAdmin: admin, provider: acc.provider }; d.profile = db.players[acc.uid] ? copy(db.players[acc.uid]) : null; }
+    else if (admin) { d.user = { uid: 'demo-organizer', email: 'demo organizer', displayName: 'Organizer', isAdmin: true, provider: 'demo' }; d.profile = { name: 'Organizer', level: 3 }; }
+    d.profileLoaded = true; return d;
   };
-  const emit = () => { store.set(KEY, db); if (cb) cb(snapshot()); };
+  const emit = () => { store.set(KEY, db); store.set('vb.localSession', session); if (cb) cb(snapshot()); };
   const nid = () => 'l' + Date.now().toString(36) + (++seq) + randomHex(3);
-  const add = (o, email) => { const k = nid(); db.signups[k] = Object.assign({ id: k, createdAt: Date.now() + seq / 1000, status: 'active', paid: false, noshow: false, guestOf: '' }, o); if (email) db.contacts[k] = email; emit(); return k; };
+  const curUid = () => { const acc = session && db.accounts[session]; if (acc) return acc.uid; if (admin) return 'demo-organizer'; throw err('vb/not-logged-in', 'Please log in first.'); };
+  const login = (email, provider, name) => { if (!db.accounts[email]) db.accounts[email] = { uid: 'u' + randomHex(10), email, provider, name: name || '' }; session = email; emit(); };
   return {
     mode: 'local',
     start(onChange) { cb = onChange; emit(); },
-    async join({ sessionId, name, email, guestOf }) { return add({ sessionId, name, uid, guestOf: guestOf || '', addedBy: 'self' }, email); },
-    async adminAdd({ sessionId, name, email }) { return add({ sessionId, name, uid, addedBy: 'organizer' }, email); },
+    async join({ sessionId, name }) {
+      const uid = curUid(); const k = sessionId + '_' + uid; const ex = db.signups[k];
+      if (ex && ex.status === 'left') Object.assign(ex, { status: 'active', createdAt: Date.now(), name });
+      else if (!ex) db.signups[k] = { id: k, sessionId, name, uid, createdAt: Date.now(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' };
+      else throw err('permission-denied', 'You can\'t rejoin after being removed.');
+      emit(); return k;
+    },
+    async adminAdd({ sessionId, name, email }) { const k = nid(); db.signups[k] = { id: k, sessionId, name, uid: curUid(), createdAt: Date.now(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'organizer' }; if (email) db.contacts[k] = email; emit(); return k; },
     async leave(k) { if (db.signups[k]) { db.signups[k].status = 'left'; emit(); } },
     async updateSignup(k, patch) { if (db.signups[k]) { Object.assign(db.signups[k], patch); emit(); } },
     async updateSignups(keys, patch) { keys.forEach(k => { if (db.signups[k]) Object.assign(db.signups[k], patch); }); emit(); },
@@ -507,11 +573,20 @@ function localBackend() {
     async reopen(sid) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'open', playedAt: null }); emit(); } },
     async saveConfig(patch) { Object.assign(db.config, patch); emit(); },
     async setRating(n, name, r) { if (r) db.ratings[n] = r; else delete db.ratings[n]; emit(); },
+    async setLevel(uid, level) { if (db.players[uid]) { db.players[uid].level = level; emit(); } },
     async savePairs(p) { db.pairs = { together: p.together || '', apart: p.apart || '' }; emit(); },
-    async signIn() { admin = true; store.set('vb.localAdmin', true); emit(); },
-    async signOut() { admin = false; store.set('vb.localAdmin', false); emit(); },
-    async clearExamples() { db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, pairs: { together: '', apart: '' } }; emit(); },
-    async resetDemo() { db = seedLocalDb(); emit(); }
+    async signInGoogle() { login('you@gmail.com', 'google.com', 'You'); },
+    async signInEmail(email, password) { const a = db.accounts[email]; if (!a || a.pw !== password) throw err('auth/invalid-credential', 'Wrong email or password.'); session = email; emit(); },
+    async register({ email, password, name, level }) {
+      if (db.accounts[email]) throw err('auth/email-already-in-use', 'There is already an account with this email.');
+      db.accounts[email] = { uid: 'u' + randomHex(10), email, provider: 'password', name, pw: password }; db.players[db.accounts[email].uid] = { name, level, email }; session = email; emit();
+    },
+    async saveProfile({ name, level }) { const uid = curUid(); if (db.players[uid]) db.players[uid].name = name; else db.players[uid] = { name, level, email: (db.accounts[session] || {}).email || '' }; emit(); },
+    async resetPassword() {},
+    async openOrganizerDemo() { admin = true; store.set('vb.localAdmin', true); emit(); },
+    async signOut() { session = null; admin = false; store.set('vb.localAdmin', false); emit(); },
+    async clearExamples() { db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, accounts: db.accounts || {}, pairs: { together: '', apart: '' } }; emit(); },
+    async resetDemo() { db = seedLocalDb(); session = null; admin = false; store.set('vb.localAdmin', false); emit(); }
   };
 }
 
@@ -554,7 +629,7 @@ function ctxFor(id) {
   if (!id || id === vm.eventId) return vm.eventId ? { id: vm.eventId, ev: vm.event, attendees: vm.attendees, people: vm.people, roster: vm.roster, current: true } : null;
   const s = vm.history.find(h => h.id === id); if (!s) return null;
   const people = new Map();
-  const attendees = (s.attendees || []).map(a => { const p = { key: a.key || keyOf(a.name, ''), name: a.name, paid: !!a.paid, active: true }; people.set(p.key, p); return p; });
+  const attendees = (s.attendees || []).map(a => { const p = { key: a.key || keyOf(a.name, ''), uid: a.uid || '', addedBy: a.uid ? 'self' : 'organizer', name: a.name, paid: !!a.paid, active: true }; people.set(p.key, p); return p; });
   return { id, ev: s.event || {}, attendees, people, roster: s.roster, current: false, played: s.played };
 }
 function activeCtx() { return ctxFor(U().roster.id); }
@@ -660,6 +735,8 @@ async function makePDF(d) {
 const U = () => S.ui;
 function viewHTML() {
   const vm = S.vm; const ui = U();
+  if (needsProfile()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + profileHTML() + '</div>';
+  if (ui.authOpen && !loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + authHTML() + '</div>';
   return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + examplesHTML() + finalRosterHTML(vm) + meHTML(vm) + listsHTML(vm) + historyHTML(vm) + orgHTML(vm) + footerHTML(vm) + '</div>';
 }
 function bandHTML(vm) {
@@ -670,6 +747,52 @@ function bandHTML(vm) {
   return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + (vm.played ? '<span class="tag">Played</span>' : '') + '</div><div class="ev-title">' + esc(fmtEventLong(ev)) + '</div><div class="ev-meta">' + esc([ev.time, ev.place, courtSummary(ev)].filter(Boolean).join(' · ')) + '</div>' +
     '<div class="score"><div class="spots">' + taken + '<small> / ' + vm.capacity + '</small></div><div class="lbl">' + (vm.played ? 'played' : 'spots taken') + (vm.bench.length ? '<br>+' + vm.bench.length + ' on the bench' : '') + '</div></div>' +
     '<div class="bar"><i style="width:' + pct + '%"></i></div></div></header>';
+}
+const LEVELS = [[1, 'Beginner', 'Learning the basics'], [2, 'Casual', 'Can keep a rally going'], [3, 'Intermediate', 'Solid pass, set and serve'], [4, 'Advanced', 'Attacks and plays positions'], [5, 'Strong', 'Club level']];
+function loggedIn() { return !!S.data.user; }
+function needsProfile() { const d = S.data; return !!(d.user && d.profileLoaded && !d.profile && !(d.mode === 'local' && d.user.uid === 'demo-organizer')); }
+function levelPickerHTML(sel) {
+  return '<div class="levels" role="radiogroup" aria-label="Your level">' + LEVELS.map(([v, t, s]) => '<button type="button" role="radio" aria-checked="' + (sel === v) + '" class="lvl' + (sel === v ? ' sel' : '') + '" data-act="pick-level" data-n="' + v + '"><b>' + v + '</b><span>' + t + '</span><small>' + s + '</small></button>').join('') + '</div>';
+}
+function authHTML() {
+  const ui = U(); const m = ui.authMode || 'login'; const err = ui.authErr ? '<div class="note bad">' + esc(ui.authErr) + '</div>' : ''; const busy = ui.authBusy;
+  const googleBtn = '<button type="button" class="btn big gbtn" data-act="auth-google"' + (busy ? ' disabled' : '') + '><span class="g">G</span> Continue with Google</button>';
+  const or = '<div class="or"><span>or</span></div>';
+  const close = '<button type="button" class="link" data-act="auth-close">Back to the list</button>';
+  let body;
+  if (m === 'register') body = '<h3>Create your account</h3><p class="muted small">One account to join every session. Your level helps the organizer make balanced teams; you set it once.</p>' + googleBtn + or +
+    '<div class="field"><label class="f" for="auName">Name (shown on the list)</label><input class="inp" id="auName" data-ui="auName" autocomplete="name" maxlength="60" value="' + esc(ui.auName) + '"></div>' +
+    '<div class="field"><label class="f" for="auEmail">Email</label><input class="inp" id="auEmail" data-ui="auEmail" type="email" autocomplete="email" value="' + esc(ui.auEmail) + '"></div>' +
+    '<div class="field"><label class="f" for="auPass">Password <span class="muted">(at least 6 characters)</span></label><input class="inp" id="auPass" data-ui="auPass" type="password" autocomplete="new-password" value="' + esc(ui.auPass) + '"></div>' +
+    '<div class="field"><label class="f">Your level</label>' + levelPickerHTML(ui.auLevel) + '</div>' + err +
+    '<button type="button" class="btn big" data-act="auth-register"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Creating…' : 'Create account') + '</button>' +
+    '<div class="actions small"><span class="muted">Already have an account?</span><button type="button" class="link" data-act="auth-mode" data-mode="login">Log in</button></div>';
+  else if (m === 'reset') body = '<h3>Reset your password</h3><p class="muted small">We\'ll email you a link to set a new one.</p>' +
+    '<div class="field"><label class="f" for="auEmail">Email</label><input class="inp" id="auEmail" data-ui="auEmail" type="email" autocomplete="email" value="' + esc(ui.auEmail) + '"></div>' + err +
+    (ui.authInfo ? '<div class="note ok">' + esc(ui.authInfo) + '</div>' : '') +
+    '<button type="button" class="btn big" data-act="auth-reset"' + (busy ? ' disabled' : '') + '>Send reset link</button>' +
+    '<div class="actions small"><button type="button" class="link" data-act="auth-mode" data-mode="login">Back to log in</button></div>';
+  else body = '<h3>Log in to join</h3><p class="muted small">You need an account to put your name on the list. Anyone can look at it without one.</p>' + googleBtn + or +
+    '<div class="field"><label class="f" for="auEmail">Email</label><input class="inp" id="auEmail" data-ui="auEmail" type="email" autocomplete="email" value="' + esc(ui.auEmail) + '"></div>' +
+    '<div class="field"><label class="f" for="auPass">Password</label><input class="inp" id="auPass" data-ui="auPass" type="password" autocomplete="current-password" value="' + esc(ui.auPass) + '"></div>' + err +
+    '<button type="button" class="btn big" data-act="auth-login"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Logging in…' : 'Log in') + '</button>' +
+    '<div class="actions small"><button type="button" class="link" data-act="auth-mode" data-mode="reset">Forgot password?</button><span style="flex:1 1 auto"></span><span class="muted">New here?</span><button type="button" class="link" data-act="auth-mode" data-mode="register">Create an account</button></div>';
+  return '<section class="card authcard"><div class="stack">' + body + '<div class="actions small">' + close + '</div></div></section>';
+}
+function profileHTML() {
+  const ui = U(); const u = S.data.user || {};
+  if (ui.pfName == null) ui.pfName = u.displayName || '';
+  return '<section class="card authcard"><div class="stack"><h3>Welcome! One more step</h3><p class="muted small">Pick the name for the list and your level. You set the level once; after that only the organizer can change it.</p>' +
+    '<div class="field"><label class="f" for="pfName">Name (shown on the list)</label><input class="inp" id="pfName" data-ui="pfName" autocomplete="name" maxlength="60" value="' + esc(ui.pfName) + '"></div>' +
+    '<div class="field"><label class="f">Your level</label>' + levelPickerHTML(ui.pfLevel) + '</div>' + (ui.authErr ? '<div class="note bad">' + esc(ui.authErr) + '</div>' : '') +
+    '<button type="button" class="btn big" data-act="profile-save"' + (ui.authBusy ? ' disabled' : '') + '>Save and continue</button>' +
+    '<div class="actions small"><span class="muted">Signed in as ' + esc(u.email || '') + '</span><button type="button" class="link" data-act="logout">Log out</button></div></div></section>';
+}
+function accountHTML() {
+  const d = S.data; const u = d.user;
+  if (!u) return '<button type="button" class="link" data-act="auth-open">Log in</button>';
+  const name = (d.profile && d.profile.name) || u.displayName || u.email;
+  return '<span class="small muted acct">' + esc(name) + (u.isAdmin ? ' · organizer' : '') + '</span><button type="button" class="link" data-act="logout">Log out</button>';
 }
 function statusText() {
   const d = S.data;
@@ -683,7 +806,7 @@ function statusText() {
 function paintStatus() { const el = $('#statusText'); if (el) el.textContent = statusText(); }
 function statusHTML(vm) {
   const d = S.data; const bad = d.status === 'error' || !!d.authError;
-  return '<div class="status' + (bad ? ' bad' : '') + '"><span class="dotlive ' + (d.mode === 'local' ? 'demo' : d.status) + '"></span><span class="sp" id="statusText"></span></div>';
+  return '<div class="status' + (bad ? ' bad' : '') + '"><span class="dotlive ' + (d.mode === 'local' ? 'demo' : d.status) + '"></span><span class="sp" id="statusText"></span>' + accountHTML() + '</div>';
 }
 function examplesHTML() {
   if (S.data.mode !== 'local' || !S.data.example) return '';
@@ -753,20 +876,19 @@ function meHTML(vm) {
     const pay = paid ? '<span class="pill ok">Paid</span>' : '<span class="pill">' + (price ? 'Pay ' + price + (S.cfg.organizer ? ' to ' + esc(S.cfg.organizer) : '') : 'Not paid yet') + '</span>';
     const leave = ui.leaveConfirm ? '<div class="actions"><span class="small">Leave the list? You lose your spot.</span><button type="button" class="btn sm danger" data-act="leave-yes">Leave</button><button type="button" class="btn sm ghost" data-act="leave-no">Keep my spot</button></div>'
       : '<div class="actions"><button type="button" class="btn sm ghost" data-act="leave-ask">Can\'t make it? Leave the list</button></div>';
-    const myGuests = vm.attendees.filter(p => p.guestOf === person.key);
-    const guestRows = myGuests.map(g => { const gi = vm.attendees.indexOf(g); return '<div class="actions"><span class="small">' + esc(g.name) + ' · ' + (gi < vm.capacity ? '#' + (gi + 1) : 'bench B' + (gi - vm.capacity + 1)) + (g.pending ? ' · saving' : '') + '</span><button type="button" class="btn xs ghost" data-act="guest-remove" data-key="' + esc(g.key) + '">Remove</button></div>'; }).join('');
-    const guest = ui.guestOpen ? '<div class="actions"><input class="inp" style="flex:1 1 150px" id="guestName" data-ui="guestName" placeholder="Friend\'s name" value="' + esc(ui.guestName) + '"><button type="button" class="btn sm outline" data-act="guest-add">Add</button><button type="button" class="btn sm ghost" data-act="guest-cancel">Cancel</button></div>'
-      : '<div class="actions"><button type="button" class="btn sm ghost" data-act="guest-open">Bring a friend (+1)</button><span class="small muted">They take their own spot, in order.</span></div>';
-    return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + '</span>' + pay + '</div>' + leave + (guestRows ? '<div class="small muted">Your guests</div>' + guestRows : '') + guest + calendarHTML(ev) + '</div></section>';
+    return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + '</span>' + pay + '</div>' + leave + calendarHTML(ev) + '</div></section>';
   }
-  const dup = ui.dup ? '<div class="note warn"><b>' + esc(ui.dup.name) + '</b> is already on the list. If that\'s you from another phone, you\'re already in. Otherwise add your last name or initial.</div>' : '';
   const full = vm.attendees.length >= vm.capacity; const opens = opensAtDate(ev); const closed = !signupsOpen(ev);
-  const fields = '<div class="grid2"><div class="field"><label class="f" for="joinName">Your name</label><input class="inp' + (ui.joinErr ? ' err' : '') + '" id="joinName" data-ui="joinName" autocomplete="name" maxlength="60" value="' + esc(ui.joinName) + '" placeholder="First name"></div><div class="field"><label class="f" for="joinEmail">Email (optional, only the organizer sees it)</label><input class="inp" id="joinEmail" data-ui="joinEmail" type="email" autocomplete="email" value="' + esc(ui.joinEmail) + '" placeholder="you@example.com"></div></div>';
-  if (closed) return '<section class="card"><div class="stack"><div><h3>Sign-ups open ' + esc(fmtWhen(opens)) + '</h3><p class="muted small">' + vm.capacity + ' spots, first come first served from that moment. The button appears here when it opens.</p></div>' + fields +
-    '<button type="button" class="btn big" disabled>Opens ' + esc(fmtWhen(opens)) + '</button>' + calendarHTML(ev) + '</div></section>';
-  return '<section class="card"><div class="stack"><div><h3>' + (full ? 'Full · join the bench' : 'Join this session') + '</h3><p class="muted small">' + (full ? 'You\'ll be B' + (vm.bench.length + 1) + ' and move up when someone leaves.' : (vm.capacity - vm.attendees.length) + ' spot' + (vm.capacity - vm.attendees.length === 1 ? '' : 's') + ' left. First come, first served.') + '</p></div>' +
-    fields + (ui.joinErr ? '<div class="note bad">' + esc(ui.joinErr) + '</div>' : '') + dup +
-    '<button type="button" class="btn big" data-act="join"' + (ui.joining ? ' disabled' : '') + '>' + (ui.joining ? 'Saving…' : (full ? 'Put me on the bench' : 'I\'m in')) + '</button>' + calendarHTML(ev) + '</div></section>';
+  const mine = S.data.user ? (S.data.signups || []).find(x => x.sessionId === vm.eventId && x.uid === S.data.user.uid && x.addedBy === 'self') : null; const removed = !!(mine && mine.status === 'removed');
+  const myName = (S.data.profile && S.data.profile.name) || '';
+  const head = closed ? '<h3>Sign-ups open ' + esc(fmtWhen(opens)) + '</h3><p class="muted small">' + vm.capacity + ' spots, first come first served from that moment. The button appears here when it opens.</p>'
+    : '<h3>' + (full ? 'Full · join the bench' : 'Join this session') + '</h3><p class="muted small">' + (full ? 'You\'ll be B' + (vm.bench.length + 1) + ' and move up when someone leaves.' : (vm.capacity - vm.attendees.length) + ' spot' + (vm.capacity - vm.attendees.length === 1 ? '' : 's') + ' left. First come, first served.') + '</p>';
+  let btn;
+  if (!loggedIn()) btn = '<button type="button" class="btn big" data-act="auth-open">Log in to join</button><div class="actions small"><span class="muted">No account yet?</span><button type="button" class="link" data-act="auth-open" data-mode="register">Create one</button></div>';
+  else if (removed) btn = '<div class="note">The organizer took you off this session\'s list. Message them if that\'s a mistake.</div>';
+  else if (closed) btn = '<button type="button" class="btn big" disabled>Opens ' + esc(fmtWhen(opens)) + '</button>';
+  else btn = '<button type="button" class="btn big" data-act="join"' + (ui.joining ? ' disabled' : '') + '>' + (ui.joining ? 'Saving…' : (full ? 'Put me on the bench' : 'Join as ' + esc(myName))) + '</button>';
+  return '<section class="card"><div class="stack"><div>' + head + '</div>' + (ui.joinErr ? '<div class="note bad">' + esc(ui.joinErr) + '</div>' : '') + btn + calendarHTML(ev) + '</div></section>';
 }
 function rowHTML(p, label, vm, benchRow) {
   const org = isOrg(); const me = vm.myKey === p.key;
@@ -824,16 +946,13 @@ function historyHTML(vm) {
   return '<section>' + head + '<div class="histlist">' + statsHTML(vm) + items + '</div><div class="actions" style="margin-top:10px"><button type="button" class="btn sm ghost" data-act="hist-toggle">Hide</button></div></section>';
 }
 function orgHTML(vm) {
-  const ui = U(); const d = S.data; const u = d.user;
+  const ui = U(); const d = S.data;
   if (!isOrg()) {
-    if (!ui.orgOpen) return '<div class="actions"><button type="button" class="link" data-act="org-open">Organizer</button></div>';
-    if (d.mode === 'local') return '<section class="card"><div class="stack"><h3>Organizer tools</h3><p class="muted small">This copy runs in demo mode on this device, so the organizer tools open without a login. The live page asks for the organizer\'s Google account.</p><div class="actions"><button type="button" class="btn sm" data-act="org-signin">Open organizer tools</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
-    const signed = u && !u.anon && u.email;
-    const err = ui.orgErr ? '<div class="note bad">' + esc(ui.orgErr) + '</div>' : '';
-    if (signed) return '<section class="card"><div class="stack"><h3>Organizer</h3><p class="small">Signed in as <b>' + esc(u.email) + '</b>. This account is not on the organizer list.</p>' + err + '<div class="actions"><button type="button" class="btn sm" data-act="org-signin">Use another Google account</button><button type="button" class="btn sm ghost" data-act="org-signout">Sign out</button><button type="button" class="btn sm ghost" data-act="org-cancel">Close</button></div></div></section>';
-    return '<section class="card"><div class="stack"><h3>Organizer</h3><p class="muted small">Sign in with the Google account that is on the organizer list.</p>' + err + '<div class="actions"><button type="button" class="btn sm" data-act="org-signin"' + (ui.orgBusy ? ' disabled' : '') + '>' + (ui.orgBusy ? 'Signing in…' : 'Sign in with Google') + '</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
+    if (d.mode !== 'local') return '';
+    if (!ui.orgOpen) return '<div class="actions"><button type="button" class="link" data-act="org-open">Organizer (demo)</button></div>';
+    return '<section class="card"><div class="stack"><h3>Organizer tools</h3><p class="muted small">This copy runs in demo mode on this device, so the organizer tools open without a login. On the live page the organizer just logs in with the account on the organizer list.</p><div class="actions"><button type="button" class="btn sm" data-act="org-demo">Open organizer tools</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
   }
-  return '<section class="org"><div class="orghead"><h3>Organizer</h3><span class="small muted orgwho">' + esc(u.email) + '</span><button type="button" class="btn xs ghost" data-act="org-signout">' + (d.mode === 'local' ? 'Close' : 'Sign out') + '</button></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
+  return '<section class="org"><div class="orghead"><h3>Organizer</h3><span class="small muted orgwho">' + esc(d.user.email) + '</span></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
 }
 function eventFormHTML(vm) {
   const ui = U(); const ev = ui.ev || {}; const cap = capacityOf({ courtsList: uiCourts(ev) });
@@ -897,8 +1016,8 @@ function playedControlsHTML(vm) {
 function ratingsHTML(ctx) {
   const ui = U(); const { together, apart } = parsePairs(ctx);
   if (!ui.ratingsOpen) return '<div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Ratings & pairs</button><span class="small muted">Only you see these. "Balance teams" uses them.</span></div>';
-  const rows = ctx.attendees.map(p => { const n = p.name.toLowerCase(); const cur = S.skills[n] || 0; return '<div class="rating"><span class="rn">' + esc(p.name) + '</span><span class="rchips">' + [1, 2, 3, 4, 5].map(v => '<button type="button" class="chip' + (cur === v ? ' sel' : '') + '" data-act="skill-set" data-name="' + esc(n) + '" data-label="' + esc(p.name) + '" data-n="' + v + '">' + v + '</button>').join('') + '</span></div>'; }).join('');
-  return '<div class="stack ratings"><div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Hide ratings & pairs</button><span class="small muted">1 = beginner, 5 = strong. Unrated counts as 3.' + (S.data.mode === 'firebase' ? ' Stored in Firebase, readable by organizers only.' : '') + '</span></div>' +
+  const rows = ctx.attendees.map(p => { const n = p.name.toLowerCase(); const cur = S.skills[n] || 0; return '<div class="rating"><span class="rn">' + esc(p.name) + '</span><span class="rchips">' + [1, 2, 3, 4, 5].map(v => '<button type="button" class="chip' + (cur === v ? ' sel' : '') + '" data-act="skill-set" data-name="' + esc(n) + '" data-label="' + esc(p.name) + '" data-uid="' + esc(p.addedBy === 'self' ? (p.uid || '') : '') + '" data-n="' + v + '">' + v + '</button>').join('') + '</span></div>'; }).join('');
+  return '<div class="stack ratings"><div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Hide ratings & pairs</button><span class="small muted">1 = beginner, 5 = strong. Players pick their own level once when they register; you can adjust it here. Unrated counts as 3.' + (S.data.mode === 'firebase' ? ' Stored in Firebase, readable by organizers only.' : '') + '</span></div>' +
     '<div class="rlist">' + rows + '</div>' +
     '<div class="grid2"><div class="field"><label class="f" for="pairsTogether">Keep together</label><input class="inp" id="pairsTogether" data-ui="pairsTogether" value="' + esc(S.pairs.together) + '" placeholder="Ana + Jonas, Mia + Luca"></div><div class="field"><label class="f" for="pairsApart">Keep apart</label><input class="inp" id="pairsApart" data-ui="pairsApart" value="' + esc(S.pairs.apart) + '" placeholder="Tom / Niko"></div></div>' +
     '<div class="small muted">Recognised: ' + together.length + ' together, ' + apart.length + ' apart (names must match the list).</div></div>';
@@ -991,40 +1110,54 @@ function eventPayload(id) {
 const actions = {
   'clear-examples': async () => { if (B.clearExamples) await B.clearExamples(); S.drafts = {}; store.set('vb.drafts', S.drafts); },
   'join': async () => {
-    const ui = U(); const name = normName(ui.joinName).slice(0, 60); const email = normEmail(ui.joinEmail);
-    ui.joinErr = ''; ui.dup = null;
-    if (!S.vm.event || S.vm.played || !signupsOpen(S.vm.event) || ui.joining) { render(); return; }
-    if (!name) { ui.joinErr = 'Please enter your name.'; render(); return; }
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ui.joinErr = 'That email doesn\'t look right.'; render(); return; }
-    const existing = S.vm.attendees.find(p => p.name.toLowerCase() === name.toLowerCase());
-    if (existing) { ui.dup = { name: existing.name }; render(); return; }
-    store.set('vb.last', { name, email });
+    const ui = U(); ui.joinErr = '';
+    if (!loggedIn()) { ui.authOpen = true; ui.authMode = 'login'; render(); return; }
+    if (!S.vm.event || S.vm.played || !signupsOpen(S.vm.event) || ui.joining || S.vm.myKey) { render(); return; }
+    const name = normName((S.data.profile && S.data.profile.name) || S.data.user.displayName || '').slice(0, 60);
+    if (!name) { ui.joinErr = 'Your profile has no name yet.'; render(); return; }
     ui.joining = true; render();
-    await run(() => B.join({ sessionId: S.vm.eventId, name, email, guestOf: '' }), 'join');
+    await run(() => B.join({ sessionId: S.vm.eventId, name }), 'join');
     ui.joining = false; render();
   },
-  'guest-open': () => { U().guestOpen = true; render(); },
-  'guest-cancel': () => { U().guestOpen = false; U().guestName = ''; render(); },
-  'guest-add': async () => {
-    const ui = U(); const name = normName(ui.guestName).slice(0, 60); const me = S.vm.myKey; if (!me) return;
-    if (!name) { toast('Enter your friend\'s name.'); return; }
-    if (S.vm.attendees.some(p => p.name.toLowerCase() === name.toLowerCase())) { toast(name + ' is already on the list.'); return; }
-    ui.guestOpen = false; ui.guestName = '';
-    await run(() => B.join({ sessionId: S.vm.eventId, name, email: '', guestOf: me }), 'join');
+  'auth-open': (el) => { const ui = U(); ui.authOpen = true; ui.authMode = (el && el.dataset && el.dataset.mode) || 'login'; ui.authErr = ''; ui.authInfo = ''; window.scrollTo(0, 0); render(); },
+  'auth-close': () => { U().authOpen = false; U().authErr = ''; render(); },
+  'auth-mode': (el) => { const ui = U(); ui.authMode = el.dataset.mode; ui.authErr = ''; ui.authInfo = ''; render(); },
+  'pick-level': (el) => { const ui = U(); const v = +el.dataset.n; if (needsProfile()) ui.pfLevel = v; else ui.auLevel = v; render(); },
+  'auth-google': async () => { await authRun(() => B.signInGoogle()); },
+  'auth-login': async () => {
+    const ui = U(); const email = normEmail(ui.auEmail);
+    if (!email || !ui.auPass) { ui.authErr = 'Enter your email and password.'; render(); return; }
+    await authRun(() => B.signInEmail(email, ui.auPass));
   },
-  'guest-remove': async (el) => { const g = S.vm.people.get(el.dataset.key); if (!g) return; await run(() => B.leave(g.key), 'leave'); },
+  'auth-register': async () => {
+    const ui = U(); const name = normName(ui.auName).slice(0, 60); const email = normEmail(ui.auEmail);
+    if (!name) { ui.authErr = 'Enter the name to show on the list.'; render(); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ui.authErr = 'That email doesn\'t look right.'; render(); return; }
+    if ((ui.auPass || '').length < 6) { ui.authErr = 'Use a password with at least 6 characters.'; render(); return; }
+    if (!ui.auLevel) { ui.authErr = 'Pick your level.'; render(); return; }
+    await authRun(() => B.register({ email, password: ui.auPass, name, level: ui.auLevel }));
+  },
+  'auth-reset': async () => {
+    const ui = U(); const email = normEmail(ui.auEmail);
+    if (!email) { ui.authErr = 'Enter your email.'; render(); return; }
+    const ok = await authRun(() => B.resetPassword(email));
+    if (ok) { ui.authInfo = 'If there is an account for ' + email + ', a reset link is on its way. Check spam too.'; render(); }
+  },
+  'profile-save': async () => {
+    const ui = U(); const name = normName(ui.pfName || '').slice(0, 60);
+    if (!name) { ui.authErr = 'Enter the name to show on the list.'; render(); return; }
+    if (!ui.pfLevel) { ui.authErr = 'Pick your level.'; render(); return; }
+    const ok = await authRun(() => B.saveProfile({ name, level: ui.pfLevel }));
+    if (ok) { ui.pfName = null; ui.pfLevel = 0; }
+  },
+  'logout': async () => { const ui = U(); ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null }; await run(() => B.signOut(), 'auth'); render(); },
   'cal-ics': async () => { const ev = S.vm.event; if (!ev) return; await saveFile('volleyball-' + (ev.date || 'session') + '.ics', icsText(ev), 'text/calendar'); },
   'leave-ask': () => { U().leaveConfirm = true; render(); },
   'leave-no': () => { U().leaveConfirm = false; render(); },
   'leave-yes': async () => { U().leaveConfirm = false; const k = S.vm.myKey; if (!k) { render(); return; } await run(() => B.leave(k), 'leave'); },
-  'org-open': () => { U().orgOpen = true; U().orgErr = ''; render(); },
-  'org-cancel': () => { U().orgOpen = false; U().orgErr = ''; render(); },
-  'org-signin': async () => {
-    const ui = U(); ui.orgBusy = true; ui.orgErr = ''; render();
-    try { await B.signIn(); } catch (e) { ui.orgErr = S.data.mode === 'firebase' ? fbExplain(e, 'auth') : ((e && e.message) || 'Could not sign in'); }
-    ui.orgBusy = false; ui.evDirty = false; render();
-  },
-  'org-signout': async () => { const ui = U(); ui.orgOpen = false; ui.setupOpen = false; ui.roster = { mode: 'closed', sel: null, id: null }; await run(() => B.signOut(), 'auth'); render(); },
+  'org-open': () => { U().orgOpen = true; render(); },
+  'org-cancel': () => { U().orgOpen = false; render(); },
+  'org-demo': async () => { if (B.openOrganizerDemo) await B.openOrganizerDemo(); U().orgOpen = false; U().evDirty = false; render(); },
   'paid-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { paid: !p.paid }), 'org'); },
   'remove-ask': (el) => { U().removeConfirm = el.dataset.key; render(); },
   'remove-no': () => { U().removeConfirm = null; render(); },
@@ -1076,7 +1209,9 @@ const actions = {
   'allpaid-yes': async () => { U().allPaidConfirm = false; const unpaid = S.vm.playing.filter(p => !p.paid && !p.noshow); if (!unpaid.length) { render(); return; } const ok = await run(() => B.updateSignups(unpaid.map(p => p.key), { paid: true }).then(() => true), 'org'); if (ok) toast('Marked ' + unpaid.length + ' as paid'); },
   'ratings-toggle': () => { U().ratingsOpen = !U().ratingsOpen; render(); },
   'skill-set': async (el) => {
-    const n = el.dataset.name; const v = +el.dataset.n; const label = el.dataset.label || n; const next = S.skills[n] === v ? 0 : v;
+    const n = el.dataset.name; const v = +el.dataset.n; const label = el.dataset.label || n; const uid = el.dataset.uid;
+    if (uid) { S.skills[n] = v; render(); await run(() => B.setLevel(uid, v), 'org'); return; }
+    const next = S.skills[n] === v ? 0 : v;
     if (next) S.skills[n] = next; else delete S.skills[n]; render();
     await run(() => B.setRating(n, label, next || null), 'org');
   },
@@ -1120,7 +1255,6 @@ const actions = {
 /* ================= wiring ================= */
 let B = null;
 function init() {
-  const last = store.get('vb.last', null); if (last) { S.ui.joinName = last.name || ''; S.ui.joinEmail = last.email || ''; }
   const conf = loadFirebaseConfig();
   B = conf ? firebaseBackend(conf) : localBackend();
   S.data = emptyData(B.mode); S.vm = buildVM(S.data); render();
@@ -1136,7 +1270,7 @@ function init() {
   });
   app.addEventListener('input', e => handleInput(e.target));
   app.addEventListener('toggle', e => { const d = e.target; if (d && d.classList && d.classList.contains('hist') && d.dataset.id) { if (d.open) U().histOpenIds[d.dataset.id] = true; else delete U().histOpenIds[d.dataset.id]; } }, true);
-  app.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'joinName') { actions.join(); } if (e.key === 'Enter' && e.target.id === 'addName') { actions['add-player'](); } if (e.key === 'Enter' && e.target.id === 'guestName') { actions['guest-add'](); } });
+  app.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'addName') { actions['add-player'](); } if (e.key === 'Enter' && e.target.id === 'auPass') { actions[U().authMode === 'register' ? 'auth-register' : 'auth-login'](); } });
   app.addEventListener('focusout', () => { if (S.renderPending) setTimeout(() => { if (S.renderPending && !inputFocused()) render(); }, 350); });
   setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && ev.opensAt && S.openState !== (Date.now() >= new Date(ev.opensAt).getTime())) render(); else paintStatus(); }, 5000);
   B.start(onData);
@@ -1150,7 +1284,7 @@ function handleInput(el) {
     pairsTimer = setTimeout(() => { pairsTimer = null; run(() => B.savePairs(S.pairs), 'org'); }, 800); return;
   }
   ui[k] = v;
-  if (k === 'joinName' || k === 'joinEmail') { ui.joinErr = ''; ui.dup = null; }
+  if (/^(au|pf)/.test(k)) ui.authErr = '';
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, balanceTeams, announceText, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, get B() { return B; } };
