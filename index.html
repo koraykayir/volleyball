@@ -178,12 +178,18 @@ details.help{font-size:14px}
 .hr{height:1px; background:var(--line)}
 .banner{display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap}
 .tip{font-size:12.5px; color:var(--muted); margin-top:4px}
+.dotlive{width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto}
+.dotlive.live{background:var(--ok)}
+.dotlive.offline,.dotlive.demo{background:var(--zone)}
+.dotlive.error{background:var(--bad)}
+.status.bad{color:var(--bad)}
+.orghead .orgwho{flex:1 1 auto; text-align:right; overflow-wrap:anywhere}
 </style>
 <!--artifact:head-end-->
 </head>
 <body>
 <!--artifact:body-start-->
-<script id="vb-config" type="application/json">{"v":2,"mode":"script","scriptUrl":"https://script.google.com/macros/s/AKfycbxoAk9kW75fKBdhYUahPTyFyIS-2ZR6nPaq5WzFlQCgrNOo2XHJZEYDrO_x50CMAxY0/exec","formId":"","entries":null,"csvUrl":"","pinHash":"","pinSalt":"","title":"Volleyball","organizer":"","pageUrl":""}</script>
+<script id="vb-config" type="application/json">{}</script>
 <main id="app"></main>
 <script id="vb-app">
 (function () {
@@ -205,40 +211,6 @@ const shuffle = a => { const b = a.slice(); for (let i = b.length - 1; i > 0; i-
 const randomHex = n => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 const inArtifact = () => !!(window.claude && typeof window.claude.use === 'function');
 
-function sha256(str) {
-  const K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
-  const bytes = new TextEncoder().encode(str);
-  const l = bytes.length, bitLen = l * 8;
-  const padLen = ((l + 9 + 63) >> 6) << 6;
-  const m = new Uint8Array(padLen); m.set(bytes); m[l] = 0x80;
-  const dv = new DataView(m.buffer);
-  dv.setUint32(padLen - 4, bitLen >>> 0); dv.setUint32(padLen - 8, Math.floor(bitLen / 0x100000000));
-  let H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
-  const w = new Uint32Array(64);
-  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
-  for (let off = 0; off < padLen; off += 64) {
-    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4);
-    for (let i = 16; i < 64; i++) {
-      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
-      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
-      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
-    }
-    let [a, b, c, d, e, f, g, h] = H;
-    for (let i = 0; i < 64; i++) {
-      const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
-      const ch = (e & f) ^ (~e & g);
-      const t1 = (h + S1 + ch + K[i] + w[i]) >>> 0;
-      const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
-      const maj = (a & b) ^ (a & c) ^ (b & c);
-      const t2 = (S0 + maj) >>> 0;
-      h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
-    }
-    H = [(H[0] + a) >>> 0, (H[1] + b) >>> 0, (H[2] + c) >>> 0, (H[3] + d) >>> 0, (H[4] + e) >>> 0, (H[5] + f) >>> 0, (H[6] + g) >>> 0, (H[7] + h) >>> 0];
-  }
-  return H.map(x => x.toString(16).padStart(8, '0')).join('');
-}
-
-/* ---- dates ---- */
 function localDateStr(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 function eventDateObj(ev) { if (!ev || !ev.date) return null; const d = new Date(ev.date + 'T' + (ev.time || '12:00')); return isNaN(d) ? null : d; }
 function fmtEventDate(ev) { const d = eventDateObj(ev); if (!d) return ev && ev.date ? ev.date : ''; return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }); }
@@ -263,40 +235,6 @@ function fmtTime(ts) {
 function ago(ms) { const s = Math.max(0, Math.round(ms / 1000)); if (s < 5) return 'just now'; if (s < 60) return s + 's ago'; const m = Math.round(s / 60); if (m < 60) return m + ' min ago'; return Math.round(m / 60) + ' h ago'; }
 
 /* ---- CSV ---- */
-function parseCSV(text) {
-  const rows = []; let row = [], field = '', q = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (q) { if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; } else field += c; }
-    else if (c === '"') q = true;
-    else if (c === ',') { row.push(field); field = ''; }
-    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-    else if (c === '\r') { /* ignore */ }
-    else field += c;
-  }
-  if (field !== '' || row.length) { row.push(field); rows.push(row); }
-  return rows;
-}
-function mapColumns(header) {
-  const h = header.map(x => String(x).trim().toLowerCase());
-  const find = (re, def) => { const i = h.findIndex(x => re.test(x)); return i >= 0 ? i : def; };
-  const c = { ts: find(/time|zeit|date|datum/, 0), name: find(/\bname\b|navn|nombre|isim|^name/, 1), email: find(/mail/, 2), action: find(/action|aktion|status|type|typ/, 3) };
-  if (c.name === c.ts) c.name = 1;
-  if (c.email === c.ts || c.email === c.name) c.email = 2;
-  if (c.action === c.ts || c.action === c.name || c.action === c.email) c.action = 3;
-  return c;
-}
-function csvToRows(text) {
-  const data = parseCSV(text); if (!data.length) return { rows: [], header: [] };
-  const header = data[0]; const c = mapColumns(header); const rows = [];
-  for (let r = 1; r < data.length; r++) {
-    const row = data[r]; if (!row.some(x => String(x).trim())) continue;
-    rows.push({ i: rows.length, ts: row[c.ts] || '', name: row[c.name] || '', email: row[c.email] || '', action: row[c.action] || '' });
-  }
-  return { rows, header, cols: c };
-}
-
-/* ---- derive the current state from rows (order = chronological) ---- */
 function courtList(ev) {
   if (!ev) return [];
   if (Array.isArray(ev.courtsList) && ev.courtsList.length) return ev.courtsList.map(f => f === '3v3' ? '3v3' : '4v4');
@@ -310,108 +248,62 @@ function courtSummary(ev) {
   if (n4) parts.push((n4 > 1 ? n4 + '× ' : '') + '4v4'); if (n3) parts.push((n3 > 1 ? n3 + '× ' : '') + '3v3');
   return l.length + ' court' + (l.length > 1 ? 's' : '') + ' · ' + parts.join(' + ');
 }
-function derive(rows) {
-  const st = { eventId: null, event: null, people: new Map(), order: [], roster: null, orgRows: [], history: [], played: false, doneTs: '', skills: {} };
-  const snapshot = () => ({ id: st.eventId, event: st.event, attendees: st.order.map(k => st.people.get(k)).filter(p => p && p.active).map(p => ({ key: p.key, name: p.name, paid: p.paid, noshow: !!p.noshow, guestOf: p.guestOf || '' })), roster: st.roster, played: st.played, doneTs: st.doneTs });
-  const opensAtOf = ev => { if (!ev || !ev.opensAt) return null; const d = new Date(ev.opensAt); return isNaN(d) ? null : d; };
-  const reset = () => { if (st.eventId) st.history.push(snapshot()); st.people = new Map(); st.order = []; st.roster = null; st.played = false; st.doneTs = ''; };
-  const past = id => st.history.find(h => h.id === id);
-  const findKey = (name, email) => {
-    const k = keyOf(name, email); if (st.people.has(k) && st.people.get(k).active) return k;
-    const n = normName(name).toLowerCase(); if (!n) return null;
-    const cands = [...st.people.keys()].filter(key => key.split('|')[0] === n && st.people.get(key).active);
-    return cands.length === 1 ? cands[0] : null;
-  };
-  for (const r of rows) {
-    const a = String(r.action || '').trim(); const name = normName(r.name); const email = String(r.email || '').trim();
-    if (a.startsWith('event:')) {
-      let j = null; try { j = JSON.parse(a.slice(6)); } catch (e) { continue; }
-      if (!j || typeof j !== 'object' || !j.id) continue;
-      if (j.id !== st.eventId) { reset(); st.eventId = j.id; }
-      st.event = Object.assign({}, st.event && st.event.id === j.id ? st.event : {}, j);
-      st.orgRows.push(r); continue;
-    }
-    if (a.startsWith('roster:')) { try { const j = JSON.parse(a.slice(7)); if (j && j.id === st.eventId) st.roster = j; else if (j && j.id) { const h = past(j.id); if (h) h.roster = j; } } catch (e) {} st.orgRows.push(r); continue; }
-    if (a.startsWith('done:')) { const id = a.slice(5); if (id === st.eventId) { st.played = true; st.doneTs = r.ts || ''; } else { const h = past(id); if (h) { h.played = true; h.doneTs = r.ts || ''; } } st.orgRows.push(r); continue; }
-    if (a.startsWith('reopen:')) { const id = a.slice(7); if (id === st.eventId) { st.played = false; st.doneTs = ''; } else { const h = past(id); if (h) { h.played = false; h.doneTs = ''; } } st.orgRows.push(r); continue; }
-    if (a === 'join' || a.startsWith('join:')) {
-      if (!name || st.played) continue;
-      const params = {}; a.slice(5).split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) params[kv.slice(0, i)] = kv.slice(i + 1); });
-      if (!params.org) { const opens = opensAtOf(st.event); const t = parseTs(r.ts); if (opens && t && t < opens) continue; }
-      const k = keyOf(name, email); const p = st.people.get(k);
-      if (p && p.active) continue;
-      st.people.set(k, { key: k, name, email, ts: r.ts, active: true, paid: p ? p.paid : false, noshow: false, guestOf: params.guest || '', pending: !!r.pending, example: !!r.example });
-      st.order = st.order.filter(x => x !== k); st.order.push(k); continue;
-    }
-    if (a === 'leave') { if (st.played) continue; const k = findKey(name, email); if (k) { st.people.get(k).active = false; st.order = st.order.filter(x => x !== k); } continue; }
-    if (a.startsWith('remove:')) { const k = a.slice(7); const p = st.people.get(k); if (p) { p.active = false; st.order = st.order.filter(x => x !== k); } st.orgRows.push(r); continue; }
-    if (a.startsWith('paid:') || a.startsWith('unpaid:')) { const paid = a.startsWith('paid:'); const k = a.slice(paid ? 5 : 7); const p = st.people.get(k); if (p) { p.paid = paid; p.paidPending = !!r.pending; } st.orgRows.push(r); continue; }
-    if (a.startsWith('noshow:') || a.startsWith('showed:')) { const ns = a.startsWith('noshow:'); const k = a.slice(7); const p = st.people.get(k); if (p) p.noshow = ns; st.orgRows.push(r); continue; }
-    if (a.startsWith('skill:')) { const m = a.match(/^skill:([0-9a-f]+):([1-5])$/); if (m) st.skills[m[1]] = +m[2]; st.orgRows.push(r); continue; }
-  }
+/* ================= data model =================
+   Firestore layout (same shape in demo mode):
+   config/app            { title, organizer, pageUrl, currentSessionId }
+   sessions/{id}         { date, time, place, courts, format, courtsList, price, note, opensAt, opensAtTs, duration,
+                           status: 'open'|'played', playedAt, roster: {t, b}|null, summary: {attendees}|null, createdAt }
+   signups/{auto}        { sessionId, name, uid, createdAt, status: 'active'|'left'|'removed', paid, noshow, guestOf, addedBy: 'self'|'organizer' }
+   contacts/{signupId}   { email, sessionId }        organizers only
+   ratings/{nameLower}   { name, r }  ratings/_pairs { together, apart }   organizers only
+   admins/{email}        added by hand in the Firebase console */
+function emptyData(mode) { return { mode, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, pairs: { together: '', apart: '' }, user: null, example: false }; }
+function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', duration: s.duration || 120 }; }
+function buildVM(d) {
+  const cfg = d.config || {}; const curId = cfg.currentSessionId || null;
+  const sessions = (d.sessions || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (a.createdAt || 0) - (b.createdAt || 0));
+  const cur = sessions.find(s => s.id === curId) || null;
+  const st = { loading: d.mode === 'firebase' && !(d.configLoaded && d.sessionsLoaded) && d.status !== 'error', eventId: cur ? cur.id : null, event: sessionEvent(cur), roster: cur && cur.roster && Array.isArray(cur.roster.t) ? cur.roster : null, played: !!(cur && cur.status === 'played'), doneTs: cur && cur.playedAt ? new Date(cur.playedAt).toISOString() : '', people: new Map(), history: [], myKey: null };
+  const uid = d.user && d.user.uid;
+  const sign = cur ? (d.signups || []).filter(x => x.sessionId === cur.id).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || String(a.id).localeCompare(String(b.id))) : [];
+  sign.forEach(x => {
+    st.people.set(x.id, { key: x.id, name: normName(x.name), email: (d.contacts || {})[x.id] || '', ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active', paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
+  });
+  st.attendees = sign.map(x => st.people.get(x.id)).filter(p => p.active);
+  const mine = uid ? st.attendees.find(p => p.uid === uid && !p.guestOf && p.addedBy !== 'organizer') : null;
+  st.myKey = mine ? mine.key : null;
   st.capacity = capacityOf(st.event);
-  st.attendees = st.order.map(k => st.people.get(k)).filter(p => p && p.active);
   st.playing = st.capacity ? st.attendees.slice(0, st.capacity) : st.attendees.slice();
   st.bench = st.capacity ? st.attendees.slice(st.capacity) : [];
+  st.history = sessions.filter(s => s.id !== curId).map(s => ({ id: s.id, event: sessionEvent(s), attendees: s.summary && Array.isArray(s.summary.attendees) ? s.summary.attendees : [], roster: s.roster && Array.isArray(s.roster.t) ? s.roster : null, played: s.status === 'played', doneTs: s.playedAt ? new Date(s.playedAt).toISOString() : '' }));
   return st;
 }
+function summaryOf(vm, noshowExtra) { return { attendees: vm.attendees.map(p => ({ key: p.key, name: p.name, paid: !!p.paid, noshow: !!(p.noshow || (noshowExtra && noshowExtra[p.key])), guestOf: p.guestOf || '' })) }; }
 
 /* ================= state ================= */
 const S = {
-  cfg: {}, online: false, serverRows: [], localRows: [], pending: [], vm: null,
-  lastFetch: 0, fetching: false, fetchErr: null, fastUntil: 0, lastHTML: '', renderPending: false,
-  me: store.get('vb.me', null), org: store.get('vb.org', null), drafts: store.get('vb.drafts', {}) || {}, skills: store.get('vb.skills', {}) || {}, pairs: store.get('vb.pairs', { together: '', apart: '' }) || { together: '', apart: '' },
+  cfg: {}, data: emptyData('local'), vm: null, lastHTML: '', renderPending: false,
+  drafts: store.get('vb.drafts', {}) || {}, skills: {}, pairs: { together: '', apart: '' },
   ui: {
     joinName: '', joinEmail: '', joinErr: '', dup: null, leaveConfirm: false, guestOpen: false, guestName: '',
-    pin: '', pinErr: '', unlockOpen: false,
-    addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false, mailConfirm: '',
+    orgOpen: false, orgErr: '', orgBusy: false,
+    addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false,
     ev: null, evDirty: false,
     roster: { mode: 'closed', sel: null, id: null }, ratingsOpen: false,
-    setupOpen: false, suMode: '', suFormLink: '', suSheetLink: '', suScriptUrl: '', suPageUrl: '', suPin: '', suTitle: '', suOrganizer: '', suFormInfo: null, suFormErr: '', suSheetInfo: null, suSheetErr: '', suScriptInfo: null, suScriptErr: '', suTesting: false, suSaved: false, orgBusy: false
+    setupOpen: false, suTitle: '', suOrganizer: '', suPageUrl: '', suSaved: false
   }
 };
-
-function loadConfig() {
-  let embedded = null;
-  try { const el = document.getElementById('vb-config'); const t = el ? el.textContent.trim() : ''; if (t && t !== '{}') embedded = JSON.parse(t); } catch (e) {}
-  const saved = store.get('vb.cfg', null);
-  S.embeddedCfg = embedded;
-  S.cfg = Object.assign({}, embedded || {}, saved || {});
-  S.online = isOnline(S.cfg);
+let pairsTimer = null;
+const isOrg = () => !!(S.data.user && S.data.user.isAdmin);
+function loadFirebaseConfig() {
+  try { const el = document.getElementById('vb-config'); const t = el ? el.textContent.trim() : ''; const j = t ? JSON.parse(t) : {}; return j && j.firebase && j.firebase.projectId && j.firebase.apiKey ? j.firebase : null; } catch (e) { return null; }
 }
-const isScript = cfg => (cfg || S.cfg).mode === 'script';
-function isOnline(cfg) { return isScript(cfg) ? !!cfg.scriptUrl : !!(cfg.formId && cfg.entries && cfg.entries.name && cfg.entries.action && cfg.csvUrl); }
-
-function seedExamples() {
-  const d = new Date(); const dow = d.getDay(); let add = (4 - dow + 7) % 7; if (add === 0) add = 7; d.setDate(d.getDate() + add);
-  const date = localDateStr(d); const id = 'example-' + date;
-  const ev = { id, date, time: '19:00', place: 'Sporthalle', courts: 2, format: 'mixed', courtsList: ['4v4', '3v3'], price: '8 €', note: '' };
-  const t0 = Date.now() - 20 * 3600e3; const names = ['Ana', 'Jonas', 'Mia', 'Luca', 'Elif', 'Tom', 'Sara', 'Niko', 'Lena', 'Paul', 'Omar', 'Julia', 'Felix', 'Nora', 'Emre', 'Lisa'];
-  const prev = new Date(d); prev.setDate(prev.getDate() - 7); const pdate = localDateStr(prev); const pid = 'example-' + pdate; const tp = t0 - 7 * 24 * 3600e3;
-  const rows = [{ ts: new Date(tp - 3600e3).toISOString(), name: 'organizer', email: '', action: 'event:' + JSON.stringify({ id: pid, date: pdate, time: '19:00', place: 'Sporthalle', courts: 1, format: '4v4', courtsList: ['4v4'], price: '8 €', note: '' }), example: true }];
-  ['Mia', 'Ana', 'Niko', 'Luca', 'Sara', 'Jonas', 'Elif', 'Paul', 'Lena'].forEach((n, i) => rows.push({ ts: new Date(tp + i * 9 * 60e3).toISOString(), name: n, email: '', action: 'join', example: true }));
-  ['mia', 'ana', 'niko', 'luca', 'sara', 'jonas', 'elif', 'paul'].forEach(k => rows.push({ ts: new Date(tp + 3 * 3600e3).toISOString(), name: 'organizer', email: '', action: 'paid:' + k, example: true }));
-  rows.push({ ts: new Date(tp + 4 * 3600e3).toISOString(), name: 'organizer', email: '', action: 'roster:' + JSON.stringify({ id: pid, t: [['Mia', 'Luca', 'Elif', 'Paul'], ['Ana', 'Niko', 'Sara', 'Jonas']], b: ['Lena'] }), example: true });
-  rows.push({ ts: new Date(tp + 30 * 3600e3).toISOString(), name: 'organizer', email: '', action: 'done:' + pid, example: true });
-  rows.push({ ts: new Date(t0 - 3600e3).toISOString(), name: 'organizer', email: '', action: 'event:' + JSON.stringify(ev), example: true });
-  names.forEach((n, i) => rows.push({ ts: new Date(t0 + i * 7 * 60e3).toISOString(), name: n, email: '', action: 'join', example: true }));
-  ['ana', 'mia', 'elif', 'jonas', 'luca', 'sara', 'omar', 'julia'].forEach(k => rows.push({ ts: new Date(t0 + 120 * 60e3).toISOString(), name: 'organizer', email: '', action: 'paid:' + k, example: true }));
-  rows.push({ ts: new Date(t0 + 120 * 60e3).toISOString(), name: 'Tom', email: '', action: 'leave', example: true });
-  return rows.map((r, i) => Object.assign({ i }, r));
+function onData(d) {
+  S.data = d; S.cfg = Object.assign({}, d.config || {}); S.skills = Object.assign({}, d.ratings || {});
+  if (!pairsTimer) S.pairs = Object.assign({ together: '', apart: '' }, d.pairs || {});
+  S.vm = buildVM(d); render();
 }
 
-function allRows() {
-  const base = S.online ? S.serverRows : S.localRows; const n = base.length;
-  const pend = S.online ? S.pending.map((p, idx) => ({ i: n + idx, ts: p.t, name: p.row.name, email: p.row.email, action: p.row.action, pending: true })) : [];
-  return base.concat(pend);
-}
-function recompute() { S.vm = derive(allRows()); syncSkills(); }
-function syncSkills() {
-  if (!S.org || !S.org.pin || !S.vm) return; let changed = false;
-  const names = new Set(); S.vm.attendees.forEach(p => names.add(p.name.toLowerCase())); S.vm.history.forEach(h => (h.attendees || []).forEach(a => names.add(String(a.name).toLowerCase())));
-  names.forEach(n => { const remote = S.vm.skills[skillHash(n)]; if (remote && S.skills[n] !== remote) { S.skills[n] = remote; changed = true; } });
-  if (changed) store.set('vb.skills', S.skills);
-}
 function ratingOf(name) { return S.skills[String(name).toLowerCase()] || 3; }
 function parsePairs(ctx) {
   const names = new Set(ctx.attendees.map(p => p.name.toLowerCase()));
@@ -456,86 +348,172 @@ function balanceTeams(ctx) {
   return teams;
 }
 
-/* ================= backend ================= */
-async function fetchCSV(url) {
-  const u = url + (url.includes('?') ? '&' : '?') + '_=' + Date.now();
-  const r = await fetch(u, { cache: 'no-store' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.text();
+/* ================= backends ================= */
+const FB_VERSION = '10.12.2';
+function fbExplain(e, where) {
+  const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
+  if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'Anonymous sign-in is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
+  if (/unauthorized-domain/.test(c)) return 'This website may not sign in yet. Add it in Firebase → Authentication → Settings → Authorized domains.';
+  if (/popup-closed|cancelled-popup/.test(c)) return 'Sign-in was cancelled.';
+  if (/permission-denied/.test(c)) return where === 'join' ? 'The list did not accept this. Sign-ups may be closed or not open yet.' : where === 'read' ? 'Firebase refused to show the data. Check that the security rules are published.' : 'Firebase refused this change. Are you signed in as an organizer?';
+  if (/not-found|failed-precondition/.test(c) && /database/i.test(m)) return 'The Firestore database does not exist yet. Create it in Firebase → Firestore Database.';
+  if (/unavailable|network-request-failed/.test(c)) return 'No connection to Firebase right now. Try again in a moment.';
+  return m;
 }
-async function postForm(cfg, row) {
-  const url = 'https://docs.google.com/forms/d/e/' + cfg.formId + '/formResponse';
-  const body = new URLSearchParams();
-  body.set(cfg.entries.name, row.name); if (cfg.entries.email) body.set(cfg.entries.email, row.email); body.set(cfg.entries.action, row.action);
-  try { await fetch(url, { method: 'POST', mode: 'no-cors', body }); return true; }
-  catch (e) {
-    try {
-      const f = document.createElement('iframe'); f.name = 'vb_post_' + randomHex(6); f.hidden = true; document.body.appendChild(f);
-      const form = document.createElement('form'); form.method = 'POST'; form.action = url; form.target = f.name; form.hidden = true;
-      body.forEach((v, k) => { const i = document.createElement('input'); i.type = 'hidden'; i.name = k; i.value = v; form.appendChild(i); });
-      document.body.appendChild(form); form.submit();
-      setTimeout(() => { form.remove(); f.remove(); }, 15000);
-      return true;
-    } catch (e2) { return false; }
+async function run(fn, where) {
+  try { return await fn(); }
+  catch (e) { toast(S.data.mode === 'firebase' ? fbExplain(e, where) : ((e && e.message) || 'Something went wrong')); return null; }
+}
+
+function firebaseBackend(conf) {
+  const d = emptyData('firebase'); let fs = null, auth = null, cb = null, subSid, unsubSign = null, adminUnsubs = [];
+  const emit = () => cb && cb(Object.assign({}, d));
+  const TS = () => firebase.firestore.FieldValue.serverTimestamp();
+  const ms = v => v && typeof v.toMillis === 'function' ? v.toMillis() : (typeof v === 'number' ? v : null);
+  const readFail = e => { d.status = 'error'; d.error = fbExplain(e, 'read'); emit(); };
+  const opensTs = s => { const t = s ? new Date(s) : null; return t && !isNaN(t) ? firebase.firestore.Timestamp.fromDate(t) : null; };
+  const withTs = f => { const o = Object.assign({}, f); if ('opensAt' in o) o.opensAtTs = opensTs(o.opensAt); return o; };
+  function resubSignups() {
+    const sid = d.config.currentSessionId || null; if (sid === subSid) return;
+    subSid = sid; if (unsubSign) unsubSign(); unsubSign = null; d.signups = [];
+    if (!sid) return;
+    unsubSign = fs.collection('signups').where('sessionId', '==', sid).onSnapshot({ includeMetadataChanges: true }, snap => {
+      d.signups = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'estimate' }) || {}; return Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), pending: !!x.metadata.hasPendingWrites }); });
+      emit();
+    }, readFail);
   }
-}
-/* Apps Script backend: GET returns {ok, rows}, POST (text/plain JSON) appends a row, checks the PIN, sends email. */
-async function scriptGet(url) {
-  const r = await fetch(url + (url.includes('?') ? '&' : '?') + '_=' + Date.now(), { cache: 'no-store', redirect: 'follow' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const j = await r.json(); if (!j || j.ok !== true || !Array.isArray(j.rows)) throw new Error((j && j.error) || 'unexpected answer');
-  return j.rows.map((x, i) => ({ i, ts: String(x.ts || ''), name: String(x.name || ''), email: String(x.email || ''), action: String(x.action || '') }));
-}
-async function scriptPost(payload) {
-  const r = await fetch(S.cfg.scriptUrl, { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const j = await r.json(); if (!j || j.ok !== true) throw new Error((j && j.error) || 'rejected');
-  return j;
-}
-async function fetchRows() {
-  if (isScript()) return scriptGet(S.cfg.scriptUrl);
-  const text = await fetchCSV(S.cfg.csvUrl); return csvToRows(text).rows;
-}
-async function postRow(row, organizer) {
-  if (isScript()) { await scriptPost(Object.assign({ type: 'row' }, row, organizer && S.org ? { pin: S.org.pin } : {})); return true; }
-  return postForm(S.cfg, row);
-}
-async function sendEmail(to, subject, body) {
-  if (!isScript()) throw new Error('Email needs the Apps Script connection.');
-  return scriptPost({ type: 'email', pin: S.org ? S.org.pin : '', to, subject, body });
-}
-function reconcilePending() {
-  const now = Date.now(); const srv = S.serverRows;
-  S.pending = S.pending.filter(p => {
-    if (now - new Date(p.t).getTime() > 20 * 60e3) return false;
-    return !srv.some((r, idx) => idx >= p.after && String(r.action).trim() === p.row.action && normName(r.name).toLowerCase() === normName(p.row.name).toLowerCase() && normEmail(r.email) === normEmail(p.row.email));
-  });
-  store.set('vb.pending', S.pending);
-}
-async function refresh() {
-  if (!S.online || S.fetching) return;
-  S.fetching = true; paintStatus();
-  try { S.serverRows = await fetchRows(); S.lastFetch = Date.now(); S.fetchErr = null; reconcilePending(); }
-  catch (e) { S.fetchErr = (e && e.message) || 'error'; }
-  S.fetching = false; recompute(); render();
-}
-function fastPoll() { S.fastUntil = Date.now() + 2 * 60e3; }
-async function submitRow(row, organizer) {
-  if (S.online) {
-    const p = { row, after: S.serverRows.length, t: new Date().toISOString() };
-    S.pending.push(p); store.set('vb.pending', S.pending); recompute(); render();
-    let ok = false, err = '';
-    try { ok = await postRow(row, organizer); } catch (e) { err = (e && e.message) || ''; }
-    if (!ok) { S.pending = S.pending.filter(x => x !== p); store.set('vb.pending', S.pending); recompute(); render(); toast(err ? 'Not saved: ' + err : 'Could not send. Check your connection and try again.'); return false; }
-    if (isScript()) { setTimeout(refresh, 300); } else { fastPoll(); setTimeout(refresh, 2500); }
-    return true;
+  function adminSubs() {
+    adminUnsubs.forEach(f => f()); adminUnsubs = [];
+    if (!(d.user && d.user.isAdmin)) { d.contacts = {}; d.ratings = {}; d.pairs = { together: '', apart: '' }; return; }
+    adminUnsubs.push(fs.collection('contacts').onSnapshot(snap => { const c = {}; snap.docs.forEach(x => { c[x.id] = (x.data() || {}).email || ''; }); d.contacts = c; emit(); }, () => {}));
+    adminUnsubs.push(fs.collection('ratings').onSnapshot(snap => {
+      const r = {}; let pairs = { together: '', apart: '' };
+      snap.docs.forEach(x => { const v = x.data() || {}; if (x.id === '_pairs') pairs = { together: v.together || '', apart: v.apart || '' }; else if (v.r) r[x.id] = v.r; });
+      d.ratings = r; d.pairs = pairs; emit();
+    }, () => {}));
   }
-  S.localRows.push(Object.assign({ i: S.localRows.length, ts: new Date().toISOString() }, row));
-  store.set('vb.rows', S.localRows); recompute(); render(); return true;
+  async function setUser(u) {
+    if (!u) { d.user = null; adminSubs(); emit(); return; }
+    const user = { uid: u.uid, email: u.email || '', anon: !!u.isAnonymous, isAdmin: false };
+    if (u.email) { try { const s = await fs.collection('admins').doc(u.email).get(); user.isAdmin = !!s.exists; } catch (e) { user.isAdmin = false; } }
+    d.user = user; d.authError = ''; adminSubs(); emit();
+  }
+  async function ensureUser() { if (auth.currentUser) return auth.currentUser; const r = await auth.signInAnonymously(); return r.user; }
+  return {
+    mode: 'firebase', projectId: conf.projectId,
+    async start(onChange) {
+      cb = onChange; emit();
+      try { if (!(window.firebase && firebase.firestore && firebase.auth)) { for (const p of ['app', 'auth', 'firestore']) await loadScript('https://cdn.jsdelivr.net/npm/firebase@' + FB_VERSION + '/firebase-' + p + '-compat.js'); } }
+      catch (e) { d.status = 'error'; d.error = 'Could not load Firebase. Check your connection and reload.'; emit(); return; }
+      if (!firebase.apps.length) firebase.initializeApp(conf);
+      fs = firebase.firestore(); auth = firebase.auth();
+      fs.collection('config').doc('app').onSnapshot(s => { d.config = s.exists ? (s.data() || {}) : {}; d.configLoaded = true; resubSignups(); emit(); }, readFail);
+      fs.collection('sessions').onSnapshot({ includeMetadataChanges: true }, snap => {
+        d.sessions = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'estimate' }) || {}; const o = Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), playedAt: ms(v.playedAt) }); delete o.opensAtTs; return o; });
+        d.sessionsLoaded = true; d.status = snap.metadata.fromCache ? 'offline' : 'live'; d.error = ''; emit();
+      }, readFail);
+      auth.onAuthStateChanged(u => {
+        if (!u) { setUser(null); auth.signInAnonymously().catch(e => { d.authError = fbExplain(e, 'auth'); emit(); }); return; }
+        setUser(u);
+      });
+      try { await auth.getRedirectResult(); } catch (e) { d.authError = fbExplain(e, 'auth'); emit(); }
+    },
+    async join({ sessionId, name, email, guestOf }) {
+      const u = await ensureUser(); const ref = fs.collection('signups').doc(); const b = fs.batch();
+      b.set(ref, { sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: guestOf || '', addedBy: 'self' });
+      if (email) b.set(fs.collection('contacts').doc(ref.id), { email, sessionId });
+      await b.commit(); return ref.id;
+    },
+    async adminAdd({ sessionId, name, email }) {
+      const u = await ensureUser(); const ref = fs.collection('signups').doc(); const b = fs.batch();
+      b.set(ref, { sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'organizer' });
+      if (email) b.set(fs.collection('contacts').doc(ref.id), { email, sessionId });
+      await b.commit(); return ref.id;
+    },
+    leave(k) { return fs.collection('signups').doc(k).update({ status: 'left', leftAt: TS() }); },
+    updateSignup(k, patch) { return fs.collection('signups').doc(k).update(patch); },
+    async updateSignups(keys, patch) { const b = fs.batch(); keys.forEach(k => b.update(fs.collection('signups').doc(k), patch)); await b.commit(); },
+    async createSession({ id, fields, prev }) {
+      const b = fs.batch();
+      b.set(fs.collection('sessions').doc(id), Object.assign(withTs(fields), { status: 'open', playedAt: null, roster: null, summary: null, createdAt: TS() }));
+      if (prev) b.update(fs.collection('sessions').doc(prev.id), { summary: prev.summary });
+      b.set(fs.collection('config').doc('app'), { currentSessionId: id }, { merge: true });
+      await b.commit();
+    },
+    updateSession(sid, fields) { return fs.collection('sessions').doc(sid).update(withTs(fields)); },
+    markPlayed(sid, summary) { return fs.collection('sessions').doc(sid).update({ status: 'played', playedAt: TS(), summary }); },
+    reopen(sid) { return fs.collection('sessions').doc(sid).update({ status: 'open', playedAt: null }); },
+    saveConfig(patch) { return fs.collection('config').doc('app').set(patch, { merge: true }); },
+    setRating(n, name, r) { const ref = fs.collection('ratings').doc(n); return r ? ref.set({ name, r }) : ref.delete(); },
+    savePairs(p) { return fs.collection('ratings').doc('_pairs').set({ together: p.together || '', apart: p.apart || '' }); },
+    async signIn() {
+      const provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
+      const cur = auth.currentUser;
+      try {
+        if (cur && cur.isAnonymous) {
+          try { await cur.linkWithPopup(provider); }
+          catch (e) { if (/credential-already-in-use|email-already-in-use/.test(String(e && e.code)) && e.credential) await auth.signInWithCredential(e.credential); else throw e; }
+        } else await auth.signInWithPopup(provider);
+      } catch (e) { if (/popup-blocked|operation-not-supported-in-this-environment/.test(String(e && e.code))) { await auth.signInWithRedirect(provider); return; } throw e; }
+      if (auth.currentUser) { await auth.currentUser.getIdToken(true); await setUser(auth.currentUser); }
+    },
+    signOut() { return auth.signOut(); }
+  };
 }
-function orgSig(action) { return (!(S.online && isScript()) && S.org && S.org.pin && S.cfg.pinHash) ? sha256(S.org.pin + '|' + action).slice(0, 16) : ''; }
-function orgSubmit(action) { return submitRow({ name: 'organizer', email: orgSig(action), action }, true); }
-function skillHash(nameLower) { return sha256((S.org && S.org.pin ? S.org.pin : '') + '|skill|' + nameLower).slice(0, 12); }
+
+function seedLocalDb() {
+  const d = new Date(); const dow = d.getDay(); let add = (4 - dow + 7) % 7; if (add === 0) add = 7; d.setDate(d.getDate() + add);
+  const date = localDateStr(d); const prev = new Date(d); prev.setDate(prev.getDate() - 7); const pdate = localDateStr(prev);
+  const t0 = Date.now() - 20 * 3600e3; const tp = t0 - 7 * 24 * 3600e3; let n = 0; const nid = () => 'x' + (++n);
+  const db = { example: true, config: { title: 'Volleyball', currentSessionId: date }, sessions: {}, signups: {}, contacts: {}, ratings: {}, pairs: { together: '', apart: '' } };
+  const pnames = ['Mia', 'Ana', 'Niko', 'Luca', 'Sara', 'Jonas', 'Elif', 'Paul', 'Lena'];
+  const patt = pnames.map((name, i) => ({ key: nid(), name, paid: i < 8, noshow: false, guestOf: '' }));
+  db.sessions[pdate] = { id: pdate, date: pdate, time: '19:00', place: 'Sporthalle', courts: 1, format: '4v4', courtsList: ['4v4'], price: '8 €', note: '', opensAt: '', duration: 120, status: 'played', playedAt: tp + 30 * 3600e3, roster: { t: [['Mia', 'Luca', 'Elif', 'Paul'], ['Ana', 'Niko', 'Sara', 'Jonas']], b: ['Lena'] }, summary: { attendees: patt }, createdAt: tp - 3600e3 };
+  db.sessions[date] = { id: date, date, time: '19:00', place: 'Sporthalle', courts: 2, format: 'mixed', courtsList: ['4v4', '3v3'], price: '8 €', note: '', opensAt: '', duration: 120, status: 'open', playedAt: null, roster: null, summary: null, createdAt: t0 - 3600e3 };
+  const names = ['Ana', 'Jonas', 'Mia', 'Luca', 'Elif', 'Tom', 'Sara', 'Niko', 'Lena', 'Paul', 'Omar', 'Julia', 'Felix', 'Nora', 'Emre', 'Lisa'];
+  const paid = ['Ana', 'Mia', 'Elif', 'Jonas', 'Luca', 'Sara', 'Omar', 'Julia'];
+  names.forEach((name, i) => { const k = nid(); db.signups[k] = { id: k, sessionId: date, name, uid: 'demo-' + i, createdAt: t0 + i * 7 * 60e3, status: name === 'Tom' ? 'left' : 'active', paid: paid.includes(name), noshow: false, guestOf: '', addedBy: 'self' }; });
+  return db;
+}
+function localBackend() {
+  const KEY = 'vb.localdb'; let db = store.get(KEY, null); if (!db || !db.sessions) db = seedLocalDb();
+  let admin = !!store.get('vb.localAdmin', false); let uid = store.get('vb.localUid', null); if (!uid) { uid = 'u' + randomHex(10); store.set('vb.localUid', uid); }
+  let cb = null; let seq = 0;
+  const copy = o => JSON.parse(JSON.stringify(o));
+  const snapshot = () => {
+    const d = emptyData('local'); d.status = 'local'; d.configLoaded = d.sessionsLoaded = true; d.example = !!db.example;
+    d.config = copy(db.config); d.sessions = Object.values(copy(db.sessions)); d.signups = Object.values(copy(db.signups));
+    d.contacts = admin ? copy(db.contacts) : {}; d.ratings = admin ? copy(db.ratings) : {}; d.pairs = admin ? copy(db.pairs) : { together: '', apart: '' };
+    d.user = { uid, email: admin ? 'demo organizer' : '', anon: !admin, isAdmin: admin }; return d;
+  };
+  const emit = () => { store.set(KEY, db); if (cb) cb(snapshot()); };
+  const nid = () => 'l' + Date.now().toString(36) + (++seq) + randomHex(3);
+  const add = (o, email) => { const k = nid(); db.signups[k] = Object.assign({ id: k, createdAt: Date.now() + seq / 1000, status: 'active', paid: false, noshow: false, guestOf: '' }, o); if (email) db.contacts[k] = email; emit(); return k; };
+  return {
+    mode: 'local',
+    start(onChange) { cb = onChange; emit(); },
+    async join({ sessionId, name, email, guestOf }) { return add({ sessionId, name, uid, guestOf: guestOf || '', addedBy: 'self' }, email); },
+    async adminAdd({ sessionId, name, email }) { return add({ sessionId, name, uid, addedBy: 'organizer' }, email); },
+    async leave(k) { if (db.signups[k]) { db.signups[k].status = 'left'; emit(); } },
+    async updateSignup(k, patch) { if (db.signups[k]) { Object.assign(db.signups[k], patch); emit(); } },
+    async updateSignups(keys, patch) { keys.forEach(k => { if (db.signups[k]) Object.assign(db.signups[k], patch); }); emit(); },
+    async createSession({ id, fields, prev }) {
+      db.sessions[id] = Object.assign({}, fields, { id, status: 'open', playedAt: null, roster: null, summary: null, createdAt: Date.now() });
+      if (prev && db.sessions[prev.id]) db.sessions[prev.id].summary = prev.summary;
+      db.config.currentSessionId = id; emit();
+    },
+    async updateSession(sid, fields) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], fields); emit(); } },
+    async markPlayed(sid, summary) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'played', playedAt: Date.now(), summary }); emit(); } },
+    async reopen(sid) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'open', playedAt: null }); emit(); } },
+    async saveConfig(patch) { Object.assign(db.config, patch); emit(); },
+    async setRating(n, name, r) { if (r) db.ratings[n] = r; else delete db.ratings[n]; emit(); },
+    async savePairs(p) { db.pairs = { together: p.together || '', apart: p.apart || '' }; emit(); },
+    async signIn() { admin = true; store.set('vb.localAdmin', true); emit(); },
+    async signOut() { admin = false; store.set('vb.localAdmin', false); emit(); },
+    async clearExamples() { db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, pairs: { together: '', apart: '' } }; emit(); },
+    async resetDemo() { db = seedLocalDb(); emit(); }
+  };
+}
 
 /* ================= helpers for views ================= */
 let toastTimer = null;
@@ -611,7 +589,7 @@ function rosterSaved(ctx, teams) { const cur = ctx.roster; if (!cur) return fals
 async function ensureRosterSaved(ctx) {
   const teams = draftFor(ctx); if (!ctx || !teams || !teams.some(t => t.length)) return false;
   if (rosterSaved(ctx, teams)) return false;
-  await orgSubmit('roster:' + JSON.stringify(rosterPayload(ctx, teams))); return true;
+  const p = rosterPayload(ctx, teams); const ok = await run(() => B.updateSession(ctx.id, { roster: { t: p.t, b: p.b } }).then(() => true), 'org'); return !!ok;
 }
 function rosterData(ctx, teams, benchNames) {
   const ev = ctx.ev || {}; const courts = []; const cl = courtList(ev);
@@ -678,47 +656,6 @@ async function makePDF(d) {
   doc.setFontSize(9); doc.setTextColor(150, 158, 173); doc.text(toLatin1('Final roster' + (d.organizer ? ' | ' + d.organizer : '') + ' | ' + new Date().toLocaleDateString('en-GB')), M, H - 10);
   return doc.output('blob');
 }
-function buildConfiguredHTML(cfg) {
-  const clone = document.documentElement.cloneNode(true);
-  const app = clone.querySelector('#app'); if (app) app.innerHTML = '';
-  clone.querySelectorAll('script').forEach(s => { if (s.id !== 'vb-app' && s.id !== 'vb-config') s.remove(); });
-  clone.querySelectorAll('#vb-toast').forEach(t => t.remove());
-  const c = clone.querySelector('#vb-config'); if (c) c.textContent = JSON.stringify(cfg).replace(/</g, '\\u003c');
-  return '<!doctype html>\n' + clone.outerHTML;
-}
-function publicCfg() { const c = S.cfg; return { v: 2, mode: c.mode === 'script' ? 'script' : 'form', scriptUrl: c.scriptUrl || '', formId: c.formId || '', entries: c.entries || null, csvUrl: c.csvUrl || '', pinHash: c.pinHash || '', pinSalt: c.pinSalt || '', title: c.title || '', organizer: c.organizer || '', pageUrl: c.pageUrl || '' }; }
-
-/* ---- Google link parsing ---- */
-function parseFormLink(link) {
-  let u; try { u = new URL(String(link).trim()); } catch (e) { return { error: 'That does not look like a link.' }; }
-  if (!/docs\.google\.com$/.test(u.hostname)) return { error: 'Paste the Google Forms pre-filled link (it starts with docs.google.com/forms/).' };
-  const m = u.pathname.match(/\/forms\/d\/e\/([^/]+)/);
-  if (!m) return { error: 'Use "Get pre-filled link" from the form\'s ⋮ menu. The editor link does not contain the field ids.' };
-  const entries = []; u.searchParams.forEach((v, k) => { if (/^entry\.\d+$/.test(k)) entries.push({ k, v }); });
-  if (entries.length < 3) return { error: 'Found ' + entries.length + ' pre-filled field' + (entries.length === 1 ? '' : 's') + '. Fill all three (Name, Email, Action) before you click "Get link".' };
-  const byVal = w => entries.find(e => e.v.trim().toLowerCase() === w);
-  const name = byVal('name') || entries[0];
-  const email = byVal('email') || byVal('e-mail') || entries.find(e => e !== name);
-  const action = byVal('join') || byVal('action') || entries.find(e => e !== name && e !== email);
-  return { formId: m[1], entries: { name: name.k, email: email.k, action: action.k }, byValue: !!(byVal('name') && byVal('join')) };
-}
-function sheetCandidates(link) {
-  let u; try { u = new URL(String(link).trim()); } catch (e) { return { error: 'That does not look like a link.' }; }
-  if (!/docs\.google\.com$/.test(u.hostname)) return { error: 'Paste a Google Sheets link.' };
-  const pubm = u.pathname.match(/\/spreadsheets\/d\/e\/([^/]+)\/(pub|pubhtml)/);
-  if (pubm) {
-    const gid = u.searchParams.get('gid'); const list = [];
-    if (u.searchParams.get('output') === 'csv') list.push(u.href.split('#')[0]);
-    list.push('https://docs.google.com/spreadsheets/d/e/' + pubm[1] + '/pub?output=csv' + (gid ? '&gid=' + gid + '&single=true' : ''));
-    return { list: [...new Set(list)] };
-  }
-  const idm = u.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
-  if (!idm) return { error: 'Could not find the spreadsheet id in that link.' };
-  const gid = u.searchParams.get('gid') || (u.hash.match(/gid=(\d+)/) || [])[1] || '';
-  const id = idm[1];
-  return { list: ['https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq?tqx=out:csv' + (gid ? '&gid=' + gid : ''), 'https://docs.google.com/spreadsheets/d/' + id + '/export?format=csv' + (gid ? '&gid=' + gid : '')] };
-}
-
 /* ================= views ================= */
 const U = () => S.ui;
 function viewHTML() {
@@ -727,6 +664,7 @@ function viewHTML() {
 }
 function bandHTML(vm) {
   const ev = vm.event; const title = S.cfg.title || 'Volleyball';
+  if (!ev && vm.loading) return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + '</div><div class="ev-title">Loading…</div><div class="ev-meta">Getting the latest list.</div></div></header>';
   if (!ev) return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + '</div><div class="ev-title">No session scheduled yet</div><div class="ev-meta">The organizer will post the next date here.</div></div></header>';
   const taken = Math.min(vm.attendees.length, vm.capacity); const pct = vm.capacity ? Math.round(100 * taken / vm.capacity) : 0;
   return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + (vm.played ? '<span class="tag">Played</span>' : '') + '</div><div class="ev-title">' + esc(fmtEventLong(ev)) + '</div><div class="ev-meta">' + esc([ev.time, ev.place, courtSummary(ev)].filter(Boolean).join(' · ')) + '</div>' +
@@ -734,20 +672,24 @@ function bandHTML(vm) {
     '<div class="bar"><i style="width:' + pct + '%"></i></div></div></header>';
 }
 function statusText() {
-  if (!S.online) return 'Local mode · this device only' + (S.org ? ' · connect Google in Setup to share it' : '');
-  if (S.fetching) return 'Updating…';
-  if (S.fetchErr) return 'Can\'t reach Google' + (inArtifact() ? ' from this preview' : '') + ' · ' + S.fetchErr;
-  if (S.lastFetch) return 'Updated ' + ago(Date.now() - S.lastFetch);
-  return 'Loading…';
+  const d = S.data;
+  if (d.mode === 'local') return 'Demo mode · data stays on this device';
+  if (d.status === 'error') return d.error || 'Something went wrong with Firebase.';
+  if (d.authError) return d.authError;
+  if (d.status === 'connecting') return 'Connecting…';
+  if (d.status === 'offline') return 'Offline · showing the last data';
+  return 'Live';
 }
 function paintStatus() { const el = $('#statusText'); if (el) el.textContent = statusText(); }
 function statusHTML(vm) {
-  return '<div class="status"><span class="sp" id="statusText"></span>' + (S.online ? '<button class="link" data-act="refresh" type="button">Refresh</button>' : '') + '</div>';
+  const d = S.data; const bad = d.status === 'error' || !!d.authError;
+  return '<div class="status' + (bad ? ' bad' : '') + '"><span class="dotlive ' + (d.mode === 'local' ? 'demo' : d.status) + '"></span><span class="sp" id="statusText"></span></div>';
 }
 function examplesHTML() {
-  if (S.online || !S.localRows.some(r => r.example)) return '';
+  if (S.data.mode !== 'local' || !S.data.example) return '';
   return '<div class="note warn banner"><span>Example data, so you can try the page. Everything here is editable.</span><button class="btn xs ghost" type="button" data-act="clear-examples">Clear examples</button></div>';
 }
+function mailtoHref(emails, subject, body) { return 'mailto:?bcc=' + emails.map(encodeURIComponent).join(',') + '&subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body); }
 function courtsHTML(teams, opts, ctx) {
   const o = opts || {}; const ev = ctx.ev; const caps = teamCaps(ev); const cl = courtList(ev); const out = [];
   for (let c = 0; c < teams.length; c += 2) {
@@ -797,8 +739,7 @@ function calendarHTML(ev) {
 function meHTML(vm) {
   const ui = U(); const ev = vm.event;
   if (!ev) return '';
-  const me = S.me; let person = null, idx = -1;
-  if (me) { person = vm.people.get(me.key) || null; if (person && person.active) idx = vm.attendees.indexOf(person); else person = null; }
+  let person = vm.myKey ? vm.people.get(vm.myKey) || null : null; const idx = person ? vm.attendees.indexOf(person) : -1;
   const price = ev.price ? esc(ev.price) : '';
   if (vm.played) {
     const was = person ? (idx < vm.capacity ? 'You played this one' + (person.paid ? '' : ' · payment still open') : 'You were on the bench for this one') : 'This session has been played';
@@ -808,30 +749,27 @@ function meHTML(vm) {
     const onBench = idx >= vm.capacity; const paid = person.paid;
     let line = onBench ? '<h3>You\'re on the bench · B' + (idx - vm.capacity + 1) + '</h3><p class="muted">' + (idx - vm.capacity === 0 ? 'You\'re first in line. ' : (idx - vm.capacity) + ' ahead of you. ') + 'You move up as soon as someone leaves.</p>'
       : '<h3>You\'re in · #' + (idx + 1) + '</h3>';
-    if (person.pending) line = '<h3>Request sent</h3><p class="muted">Google usually confirms within a minute. Your place is counted from the time you tapped.</p>';
+    if (person.pending) line = '<h3>Saving your spot…</h3><p class="muted">Your place counts from the moment it reaches the list, usually within a second.</p>';
     const pay = paid ? '<span class="pill ok">Paid</span>' : '<span class="pill">' + (price ? 'Pay ' + price + (S.cfg.organizer ? ' to ' + esc(S.cfg.organizer) : '') : 'Not paid yet') + '</span>';
     const leave = ui.leaveConfirm ? '<div class="actions"><span class="small">Leave the list? You lose your spot.</span><button type="button" class="btn sm danger" data-act="leave-yes">Leave</button><button type="button" class="btn sm ghost" data-act="leave-no">Keep my spot</button></div>'
       : '<div class="actions"><button type="button" class="btn sm ghost" data-act="leave-ask">Can\'t make it? Leave the list</button></div>';
     const myGuests = vm.attendees.filter(p => p.guestOf === person.key);
-    const guestRows = myGuests.map(g => { const gi = vm.attendees.indexOf(g); return '<div class="actions"><span class="small">' + esc(g.name) + ' · ' + (gi < vm.capacity ? '#' + (gi + 1) : 'bench B' + (gi - vm.capacity + 1)) + (g.pending ? ' · pending' : '') + '</span><button type="button" class="btn xs ghost" data-act="guest-remove" data-key="' + esc(g.key) + '">Remove</button></div>'; }).join('');
+    const guestRows = myGuests.map(g => { const gi = vm.attendees.indexOf(g); return '<div class="actions"><span class="small">' + esc(g.name) + ' · ' + (gi < vm.capacity ? '#' + (gi + 1) : 'bench B' + (gi - vm.capacity + 1)) + (g.pending ? ' · saving' : '') + '</span><button type="button" class="btn xs ghost" data-act="guest-remove" data-key="' + esc(g.key) + '">Remove</button></div>'; }).join('');
     const guest = ui.guestOpen ? '<div class="actions"><input class="inp" style="flex:1 1 150px" id="guestName" data-ui="guestName" placeholder="Friend\'s name" value="' + esc(ui.guestName) + '"><button type="button" class="btn sm outline" data-act="guest-add">Add</button><button type="button" class="btn sm ghost" data-act="guest-cancel">Cancel</button></div>'
       : '<div class="actions"><button type="button" class="btn sm ghost" data-act="guest-open">Bring a friend (+1)</button><span class="small muted">They take their own spot, in order.</span></div>';
-    return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + (person.email ? ' · ' + esc(person.email) : '') + '</span>' + pay + '</div>' + leave + (guestRows ? '<div class="small muted">Your guests</div>' + guestRows : '') + guest + calendarHTML(ev) + '</div></section>';
+    return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + '</span>' + pay + '</div>' + leave + (guestRows ? '<div class="small muted">Your guests</div>' + guestRows : '') + guest + calendarHTML(ev) + '</div></section>';
   }
-  const pendingJoin = S.online && me && S.pending.some(p => p.row.action === 'join' && keyOf(p.row.name, p.row.email) === me.key);
-  if (pendingJoin) return '<section class="card"><h3>Request sent</h3><p class="muted">Google usually confirms within a minute. Your place is counted from the time you tapped.</p></section>';
-  const dup = ui.dup ? '<div class="note warn">Someone named <b>' + esc(ui.dup.name) + '</b> is already on the list. <button type="button" class="link" data-act="thats-me">That\'s me</button> · or add your email below to tell you apart.</div>' : '';
+  const dup = ui.dup ? '<div class="note warn"><b>' + esc(ui.dup.name) + '</b> is already on the list. If that\'s you from another phone, you\'re already in. Otherwise add your last name or initial.</div>' : '';
   const full = vm.attendees.length >= vm.capacity; const opens = opensAtDate(ev); const closed = !signupsOpen(ev);
-  if (closed) return '<section class="card"><div class="stack"><div><h3>Sign-ups open ' + esc(fmtWhen(opens)) + '</h3><p class="muted small">' + vm.capacity + ' spots, first come first served from that moment. The button appears here when it opens.</p></div>' +
-    '<div class="grid2"><div class="field"><label class="f" for="joinName">Your name</label><input class="inp" id="joinName" data-ui="joinName" autocomplete="name" value="' + esc(ui.joinName) + '" placeholder="First name"></div><div class="field"><label class="f" for="joinEmail">Email (optional)</label><input class="inp" id="joinEmail" data-ui="joinEmail" type="email" autocomplete="email" value="' + esc(ui.joinEmail) + '" placeholder="you@example.com"></div></div>' +
+  const fields = '<div class="grid2"><div class="field"><label class="f" for="joinName">Your name</label><input class="inp' + (ui.joinErr ? ' err' : '') + '" id="joinName" data-ui="joinName" autocomplete="name" maxlength="60" value="' + esc(ui.joinName) + '" placeholder="First name"></div><div class="field"><label class="f" for="joinEmail">Email (optional, only the organizer sees it)</label><input class="inp" id="joinEmail" data-ui="joinEmail" type="email" autocomplete="email" value="' + esc(ui.joinEmail) + '" placeholder="you@example.com"></div></div>';
+  if (closed) return '<section class="card"><div class="stack"><div><h3>Sign-ups open ' + esc(fmtWhen(opens)) + '</h3><p class="muted small">' + vm.capacity + ' spots, first come first served from that moment. The button appears here when it opens.</p></div>' + fields +
     '<button type="button" class="btn big" disabled>Opens ' + esc(fmtWhen(opens)) + '</button>' + calendarHTML(ev) + '</div></section>';
   return '<section class="card"><div class="stack"><div><h3>' + (full ? 'Full · join the bench' : 'Join this session') + '</h3><p class="muted small">' + (full ? 'You\'ll be B' + (vm.bench.length + 1) + ' and move up when someone leaves.' : (vm.capacity - vm.attendees.length) + ' spot' + (vm.capacity - vm.attendees.length === 1 ? '' : 's') + ' left. First come, first served.') + '</p></div>' +
-    '<div class="grid2"><div class="field"><label class="f" for="joinName">Your name</label><input class="inp' + (ui.joinErr ? ' err' : '') + '" id="joinName" data-ui="joinName" autocomplete="name" value="' + esc(ui.joinName) + '" placeholder="First name"></div><div class="field"><label class="f" for="joinEmail">Email (optional)</label><input class="inp" id="joinEmail" data-ui="joinEmail" type="email" autocomplete="email" value="' + esc(ui.joinEmail) + '" placeholder="you@example.com"></div></div>' +
-    (ui.joinErr ? '<div class="note bad">' + esc(ui.joinErr) + '</div>' : '') + dup +
-    '<button type="button" class="btn big" data-act="join">' + (full ? 'Put me on the bench' : 'I\'m in') + '</button>' + calendarHTML(ev) + '</div></section>';
+    fields + (ui.joinErr ? '<div class="note bad">' + esc(ui.joinErr) + '</div>' : '') + dup +
+    '<button type="button" class="btn big" data-act="join"' + (ui.joining ? ' disabled' : '') + '>' + (ui.joining ? 'Saving…' : (full ? 'Put me on the bench' : 'I\'m in')) + '</button>' + calendarHTML(ev) + '</div></section>';
 }
 function rowHTML(p, label, vm, benchRow) {
-  const org = !!S.org; const me = S.me && S.me.key === p.key;
+  const org = isOrg(); const me = vm.myKey === p.key;
   const right = [];
   if (me) right.push('<span class="pill you">you</span>');
   if (p.noshow) right.push('<span class="pill" style="color:var(--bad);background:var(--bad-soft)">no-show</span>');
@@ -848,7 +786,7 @@ function listsHTML(vm) {
   if (!vm.event) return '';
   const play = vm.playing.map((p, i) => rowHTML(p, i + 1, vm, false)).join('') || '<div class="empty">Nobody yet. Be the first.</div>';
   const bench = vm.bench.map((p, i) => rowHTML(p, 'B' + (i + 1), vm, true)).join('');
-  const add = S.org ? '<div class="actions" style="margin-top:12px"><input class="inp" style="flex:1 1 140px" id="addName" data-ui="addName" placeholder="Name" value="' + esc(U().addName) + '"><input class="inp" style="flex:1 1 140px" id="addEmail" data-ui="addEmail" placeholder="Email (optional)" value="' + esc(U().addEmail) + '"><button type="button" class="btn sm outline" data-act="add-player">Add to list</button></div>' : '';
+  const add = isOrg() ? '<div class="actions" style="margin-top:12px"><input class="inp" style="flex:1 1 140px" id="addName" data-ui="addName" placeholder="Name" value="' + esc(U().addName) + '"><input class="inp" style="flex:1 1 140px" id="addEmail" data-ui="addEmail" placeholder="Email (optional)" value="' + esc(U().addEmail) + '"><button type="button" class="btn sm outline" data-act="add-player">Add to list</button></div>' : '';
   return '<section><h2 class="sec">Playing <span class="cnt">' + vm.playing.length + ' of ' + vm.capacity + '</span></h2><div class="list">' + play + '</div>' + add + '</section>' +
     '<section class="bench"><h2 class="sec"><span class="dot"></span>Bench <span class="cnt">' + vm.bench.length + '</span></h2><div class="list">' + (bench || '<div class="empty">Empty. Anyone who joins after the list is full lands here, in order.</div>') + '</div></section>';
 }
@@ -874,11 +812,11 @@ function historyHTML(vm) {
   const items = h.slice().reverse().map(s => {
     const ev = s.event || {}; const cap = capacityOf(ev); const att = s.attendees || [];
     const playing = cap ? att.slice(0, cap) : att; const bench = cap ? att.slice(cap) : []; const noshows = playing.filter(a => a.noshow).length;
-    const ctx = ctxFor(s.id); const editing = S.org && ui.roster.id === s.id && ui.roster.mode !== 'closed';
+    const ctx = ctxFor(s.id); const editing = isOrg() && ui.roster.id === s.id && ui.roster.mode !== 'closed';
     let teams = '';
     if (editing) teams = '<div class="hroster"><div class="small muted">Teams for this session</div>' + rosterEditorHTML(ctx) + '</div>';
-    else if (s.roster && Array.isArray(s.roster.t)) teams = '<div class="hroster"><div class="small muted">Teams</div>' + courtsHTML(teamsFromNames(ctx, s.roster.t), { edit: false, flag: false }, ctx) + (S.org ? '<div class="actions"><button type="button" class="btn xs ghost" data-act="roster-open" data-id="' + esc(s.id) + '">Edit teams</button></div>' : '') + '</div>';
-    else teams = '<div class="hroster"><span class="small muted">No teams stored for this session.</span>' + (S.org ? '<div class="actions"><button type="button" class="btn xs outline" data-act="roster-open" data-id="' + esc(s.id) + '">Set teams</button></div>' : '') + '</div>';
+    else if (s.roster && Array.isArray(s.roster.t)) teams = '<div class="hroster"><div class="small muted">Teams</div>' + courtsHTML(teamsFromNames(ctx, s.roster.t), { edit: false, flag: false }, ctx) + (isOrg() ? '<div class="actions"><button type="button" class="btn xs ghost" data-act="roster-open" data-id="' + esc(s.id) + '">Edit teams</button></div>' : '') + '</div>';
+    else teams = '<div class="hroster"><span class="small muted">No teams stored for this session.</span>' + (isOrg() ? '<div class="actions"><button type="button" class="btn xs outline" data-act="roster-open" data-id="' + esc(s.id) + '">Set teams</button></div>' : '') + '</div>';
     return '<details class="hist" data-id="' + esc(s.id) + '"' + (editing || ui.histOpenIds[s.id] ? ' open' : '') + '><summary><span>' + esc(fmtEventDate(ev)) + (ev.time ? ' ' + esc(ev.time) : '') + (ev.place ? ' · ' + esc(ev.place) : '') + '</span><span class="cnt">' + (playing.length - noshows) + ' played' + (noshows ? ', ' + noshows + ' no-show' : '') + (bench.length ? ', ' + bench.length + ' bench' : '') + (s.roster ? ' · teams' : '') + (s.played ? '' : ' · not marked as played') + '</span></summary>' +
       '<div class="hbody">' + (courtSummary(ev) ? '<div class="small muted">' + esc(courtSummary(ev)) + ' · ' + att.filter(a => a.paid).length + ' paid</div>' : '') + '<ol>' + playing.map(a => '<li>' + esc(a.name) + (a.noshow ? ' <span class="pill" style="color:var(--bad);background:var(--bad-soft)">no-show</span>' : '') + (a.paid ? ' <span class="pill ok">paid</span>' : '') + '</li>').join('') + '</ol>' +
       (bench.length ? '<div class="small muted">Bench: ' + esc(bench.map(a => a.name).join(', ')) + '</div>' : '') + teams + '</div></details>';
@@ -886,21 +824,22 @@ function historyHTML(vm) {
   return '<section>' + head + '<div class="histlist">' + statsHTML(vm) + items + '</div><div class="actions" style="margin-top:10px"><button type="button" class="btn sm ghost" data-act="hist-toggle">Hide</button></div></section>';
 }
 function orgHTML(vm) {
-  const ui = U();
-  if (!S.org) {
-    if (!ui.unlockOpen) return '<div class="actions"><button type="button" class="link" data-act="org-open">Organizer</button></div>';
-    if (!S.cfg.pinHash && !(S.online && isScript())) return '<section class="card"><div class="stack"><h3>Organizer tools</h3><p class="muted small">No PIN is set yet, so anyone can open these. Set one in Setup before you share the page.</p><div class="actions"><button type="button" class="btn sm" data-act="org-unlock">Open organizer tools</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
-    return '<section class="card"><div class="stack"><h3>Organizer</h3><div class="field"><label class="f" for="pin">PIN</label><input class="inp' + (ui.pinErr ? ' err' : '') + '" id="pin" data-ui="pin" type="password" inputmode="numeric" autocomplete="off" value="' + esc(ui.pin) + '"></div>' + (ui.pinErr ? '<div class="note bad">' + esc(ui.pinErr) + '</div>' : '') + '<div class="actions"><button type="button" class="btn sm" data-act="org-unlock"' + (ui.orgBusy ? ' disabled' : '') + '>' + (ui.orgBusy ? 'Checking…' : 'Unlock') + '</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
+  const ui = U(); const d = S.data; const u = d.user;
+  if (!isOrg()) {
+    if (!ui.orgOpen) return '<div class="actions"><button type="button" class="link" data-act="org-open">Organizer</button></div>';
+    if (d.mode === 'local') return '<section class="card"><div class="stack"><h3>Organizer tools</h3><p class="muted small">This copy runs in demo mode on this device, so the organizer tools open without a login. The live page asks for the organizer\'s Google account.</p><div class="actions"><button type="button" class="btn sm" data-act="org-signin">Open organizer tools</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
+    const signed = u && !u.anon && u.email;
+    const err = ui.orgErr ? '<div class="note bad">' + esc(ui.orgErr) + '</div>' : '';
+    if (signed) return '<section class="card"><div class="stack"><h3>Organizer</h3><p class="small">Signed in as <b>' + esc(u.email) + '</b>. This account is not on the organizer list.</p>' + err + '<div class="actions"><button type="button" class="btn sm" data-act="org-signin">Use another Google account</button><button type="button" class="btn sm ghost" data-act="org-signout">Sign out</button><button type="button" class="btn sm ghost" data-act="org-cancel">Close</button></div></div></section>';
+    return '<section class="card"><div class="stack"><h3>Organizer</h3><p class="muted small">Sign in with the Google account that is on the organizer list.</p>' + err + '<div class="actions"><button type="button" class="btn sm" data-act="org-signin"' + (ui.orgBusy ? ' disabled' : '') + '>' + (ui.orgBusy ? 'Signing in…' : 'Sign in with Google') + '</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
   }
-  return '<section class="org"><div class="orghead"><h3>Organizer</h3><button type="button" class="btn xs ghost" data-act="org-lock">Lock</button></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
+  return '<section class="org"><div class="orghead"><h3>Organizer</h3><span class="small muted orgwho">' + esc(u.email) + '</span><button type="button" class="btn xs ghost" data-act="org-signout">' + (d.mode === 'local' ? 'Close' : 'Sign out') + '</button></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
 }
 function eventFormHTML(vm) {
   const ui = U(); const ev = ui.ev || {}; const cap = capacityOf({ courtsList: uiCourts(ev) });
   const cur = vm.event;
-  const unverified = countUnverified(vm);
   return '<div class="sub"><h2 class="sec">Session</h2>' +
     (cur ? '<div class="small muted">Current: ' + esc(fmtEventDate(cur)) + (cur.time ? ' ' + esc(cur.time) : '') + ' · ' + vm.attendees.length + ' signed up (' + vm.attendees.filter(p => p.paid).length + ' paid)</div>' : '<div class="small muted">No session yet. Fill this in and start one.</div>') +
-    (unverified ? '<div class="note warn">' + unverified + ' organizer change' + (unverified > 1 ? 's were' : ' was') + ' not signed with your PIN (sent before the PIN was set, or by someone else).</div>' : '') +
     '<div class="grid2"><div class="field"><label class="f" for="evDate">Date</label><input class="inp" id="evDate" data-ui="evDate" type="date" value="' + esc(ev.date || '') + '"></div><div class="field"><label class="f" for="evTime">Time</label><input class="inp" id="evTime" data-ui="evTime" type="time" value="' + esc(ev.time || '') + '"></div></div>' +
     '<div class="field"><label class="f" for="evPlace">Place</label><input class="inp" id="evPlace" data-ui="evPlace" value="' + esc(ev.place || '') + '" placeholder="Hall or beach court"></div>' +
     '<div class="grid3"><div class="field"><label class="f" for="evC4">Courts 4 vs 4 <span class="muted">(8 each)</span></label><input class="inp" id="evC4" data-ui="evC4" type="number" min="0" max="8" inputmode="numeric" value="' + esc(ev.c4 == null ? 1 : ev.c4) + '"></div><div class="field"><label class="f" for="evC3">Courts 3 vs 3 <span class="muted">(6 each)</span></label><input class="inp" id="evC3" data-ui="evC3" type="number" min="0" max="8" inputmode="numeric" value="' + esc(ev.c3 == null ? 0 : ev.c3) + '"></div><div class="field"><label class="f" for="evPrice">Price per person</label><input class="inp" id="evPrice" data-ui="evPrice" value="' + esc(ev.price || '') + '" placeholder="8 €"></div></div>' +
@@ -939,7 +878,7 @@ function paymentsHTML(vm) {
   const summary = '<div class="small">Paid: <b>' + paid.length + '</b> of ' + att.length + (pn ? ' · collected <b>' + fmtMoney(paid.length * pn, ev.price) + '</b> · outstanding <b>' + fmtMoney(unpaid.length * pn, ev.price) + '</b>' : '') + '</div>';
   if (!unpaid.length) return '<div class="sub"><h2 class="sec">Payments</h2>' + summary + '<div class="small muted">Everyone who plays has paid.</div></div>';
   const t = reminderText(vm, unpaid);
-  const mail = S.online && isScript() ? (ui.mailConfirm === 'reminder' ? '<span class="small">Email ' + withMail.length + ' of them (those with an email)?</span><button type="button" class="btn sm" data-act="email-reminder-yes">Send</button><button type="button" class="btn sm ghost" data-act="mail-cancel">Cancel</button>' : '<button type="button" class="btn sm ghost" data-act="email-reminder-ask"' + (withMail.length ? '' : ' disabled') + '>Email reminder' + (withMail.length ? ' (' + withMail.length + ')' : '') + '</button>') : '';
+  const mail = withMail.length ? '<a class="btn sm ghost" href="' + esc(mailtoHref(withMail.map(p => p.email), (S.cfg.title || 'Volleyball') + ' · payment for ' + fmtEventDate(ev), reminderText(vm, unpaid))) + '">Email reminder (' + withMail.length + ')</a>' : '';
   const all = ui.allPaidConfirm ? '<span class="small">Mark all ' + unpaid.length + ' as paid?</span><button type="button" class="btn sm" data-act="allpaid-yes">Yes, all paid</button><button type="button" class="btn sm ghost" data-act="allpaid-no">Cancel</button>' : '<button type="button" class="btn sm ghost" data-act="allpaid-ask">Mark everyone paid</button>';
   return '<div class="sub"><h2 class="sec">Payments</h2>' + summary + '<div class="small muted">Still to pay: ' + esc(unpaid.map(p => p.name).join(', ')) + '</div>' +
     '<div class="actions"><a class="btn sm outline" href="https://wa.me/?text=' + encodeURIComponent(t) + '" target="_blank" rel="noopener">Remind on WhatsApp</a><button type="button" class="btn sm ghost" data-act="reminder-copy">Copy reminder</button>' + mail + '</div>' +
@@ -955,24 +894,19 @@ function playedControlsHTML(vm) {
   }
   return '<div class="actions"><button type="button" class="btn sm outline" data-act="done-ask">Mark as played</button><span class="small muted">After the game: closes the list, records no-shows and keeps it in the history.</span></div>';
 }
-function countUnverified(vm) {
-  if (!S.org || !S.org.pin || !S.cfg.pinHash || (S.online && isScript())) return 0;
-  return vm.orgRows.filter(r => !r.pending && !r.example && String(r.email || '').trim() !== sha256(S.org.pin + '|' + String(r.action).trim()).slice(0, 16)).length;
-}
 function ratingsHTML(ctx) {
   const ui = U(); const { together, apart } = parsePairs(ctx);
   if (!ui.ratingsOpen) return '<div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Ratings & pairs</button><span class="small muted">Only you see these. "Balance teams" uses them.</span></div>';
-  const rows = ctx.attendees.map(p => { const n = p.name.toLowerCase(); const cur = S.skills[n] || 0; return '<div class="rating"><span class="rn">' + esc(p.name) + '</span><span class="rchips">' + [1, 2, 3, 4, 5].map(v => '<button type="button" class="chip' + (cur === v ? ' sel' : '') + '" data-act="skill-set" data-name="' + esc(n) + '" data-n="' + v + '">' + v + '</button>').join('') + '</span></div>'; }).join('');
-  return '<div class="stack ratings"><div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Hide ratings & pairs</button><span class="small muted">1 = beginner, 5 = strong. Unrated counts as 3.' + (S.org && S.org.pin && S.online ? ' Ratings sync to your other devices in a scrambled form.' : '') + '</span></div>' +
+  const rows = ctx.attendees.map(p => { const n = p.name.toLowerCase(); const cur = S.skills[n] || 0; return '<div class="rating"><span class="rn">' + esc(p.name) + '</span><span class="rchips">' + [1, 2, 3, 4, 5].map(v => '<button type="button" class="chip' + (cur === v ? ' sel' : '') + '" data-act="skill-set" data-name="' + esc(n) + '" data-label="' + esc(p.name) + '" data-n="' + v + '">' + v + '</button>').join('') + '</span></div>'; }).join('');
+  return '<div class="stack ratings"><div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Hide ratings & pairs</button><span class="small muted">1 = beginner, 5 = strong. Unrated counts as 3.' + (S.data.mode === 'firebase' ? ' Stored in Firebase, readable by organizers only.' : '') + '</span></div>' +
     '<div class="rlist">' + rows + '</div>' +
     '<div class="grid2"><div class="field"><label class="f" for="pairsTogether">Keep together</label><input class="inp" id="pairsTogether" data-ui="pairsTogether" value="' + esc(S.pairs.together) + '" placeholder="Ana + Jonas, Mia + Luca"></div><div class="field"><label class="f" for="pairsApart">Keep apart</label><input class="inp" id="pairsApart" data-ui="pairsApart" value="' + esc(S.pairs.apart) + '" placeholder="Tom / Niko"></div></div>' +
     '<div class="small muted">Recognised: ' + together.length + ' together, ' + apart.length + ' apart (names must match the list).</div></div>';
 }
 function rosterMailHTML(ctx) {
-  if (!(S.online && isScript())) return '';
-  const to = ctx.attendees.filter(p => p.email); const ui = U();
-  if (ui.mailConfirm === 'roster') return '<span class="small">Email the teams to ' + to.length + ' player' + (to.length === 1 ? '' : 's') + ' with an email?</span><button type="button" class="btn sm" data-act="email-roster-yes">Send</button><button type="button" class="btn sm ghost" data-act="mail-cancel">Cancel</button>';
-  return '<button type="button" class="btn sm ghost" data-act="email-roster-ask"' + (to.length ? '' : ' disabled') + '>Email to players' + (to.length ? ' (' + to.length + ')' : '') + '</button>';
+  const to = ctx.attendees.filter(p => p.email); if (!to.length) return '';
+  const d = activeRosterData(); if (!d) return '';
+  return '<a class="btn sm ghost" href="' + esc(mailtoHref(to.map(p => p.email), (S.cfg.title || 'Volleyball') + ' · teams for ' + fmtEventDate(ctx.ev), rosterText(d))) + '">Email to players (' + to.length + ')</a>';
 }
 function rosterSectionHTML(vm) {
   const ui = U(); const r = ui.roster; const ctx = ctxFor(null); if (!ctx) return '';
@@ -1005,100 +939,16 @@ function rosterEditorHTML(ctx) {
     '<div class="hr"></div><div class="small muted">Export</div>' +
     '<div class="actions"><a class="btn sm" href="https://wa.me/?text=' + encodeURIComponent(rosterText(data)) + '" target="_blank" rel="noopener" data-act="export-wa">Share on WhatsApp</a><button type="button" class="btn sm ghost" data-act="export-copy">Copy as text</button><button type="button" class="btn sm ghost" data-act="export-pdf">PDF</button><button type="button" class="btn sm ghost" data-act="export-html">HTML file</button>' + rosterMailHTML(ctx) + '</div></div>';
 }
-const APPS_SCRIPT_CODE = `// Volleyball sign-up backend. Paste into Extensions > Apps Script of a NEW Google Sheet.
-// 1) Put your organizer PIN below.   2) Deploy > New deployment > Web app:
-//    "Execute as: Me", "Who has access: Anyone".   3) Paste the web app URL into the page.
-var ORGANIZER_PIN = 'change-me';
-var SHEET_NAME = 'Rows';
-
-function doGet(e) { return out({ ok: true, rows: readRows() }); }
-
-function doPost(e) {
-  var b = {};
-  try { b = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return out({ ok: false, error: 'bad request' }); }
-  var pinOk = String(b.pin || '') === String(ORGANIZER_PIN);
-  if (b.type === 'auth') return out({ ok: pinOk, error: pinOk ? undefined : 'wrong PIN' });
-  if (b.type === 'email') {
-    if (!pinOk) return out({ ok: false, error: 'organizer PIN required' });
-    var to = (b.to || []).map(String).filter(function (x) { return x.indexOf('@') > 0; });
-    if (!to.length) return out({ ok: false, error: 'no recipients' });
-    MailApp.sendEmail({ to: to.join(','), subject: String(b.subject || 'Volleyball'), body: String(b.body || '') });
-    return out({ ok: true, sent: to.length });
-  }
-  if (b.type === 'row') {
-    var name = String(b.name || '').trim().slice(0, 80);
-    var email = String(b.email || '').trim().slice(0, 120);
-    var action = String(b.action || '').trim().slice(0, 4000);
-    if (!name || !action) return out({ ok: false, error: 'missing fields' });
-    var player = action === 'join' || action === 'leave' || action.indexOf('join:guest=') === 0;
-    if (!player && !pinOk) return out({ ok: false, error: 'organizer PIN required' });
-    var lock = LockService.getScriptLock(); lock.waitLock(10000);
-    try { sheet().appendRow([new Date().toISOString(), name, email, action]); } finally { lock.releaseLock(); }
-    return out({ ok: true });
-  }
-  return out({ ok: false, error: 'unknown request' });
-}
-
-function sheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) { sh = ss.insertSheet(SHEET_NAME); sh.appendRow(['Timestamp', 'Name', 'Email', 'Action']); }
-  return sh;
-}
-function readRows() {
-  var sh = sheet(); var last = sh.getLastRow(); if (last < 2) return [];
-  return sh.getRange(2, 1, last - 1, 4).getValues().filter(function (r) { return r[1] || r[3]; }).map(function (r) {
-    return { ts: r[0] instanceof Date ? r[0].toISOString() : String(r[0]), name: String(r[1]), email: String(r[2]), action: String(r[3]) };
-  });
-}
-function out(obj) { return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }
-`;
 function setupHTML() {
-  const ui = U(); const c = S.cfg; const mode = ui.suMode || c.mode || 'script';
-  const modeLine = S.online ? '<div class="note ok">Connected to Google (' + (isScript() ? 'Apps Script' : 'Form + Sheet') + '). Players who open this page see the live list.</div>' : '<div class="note">Local mode. Sign-ups are stored on this device only. Connect Google to share the page.</div>';
-  const art = inArtifact() ? '<div class="note warn">This preview can\'t call Google, so connection tests only work on the downloaded page. Paste your links here, Save, Download configured page, then open that file to test and host it.</div>' : '';
-  if (!ui.setupOpen) return '<div class="sub"><h2 class="sec">Setup</h2>' + modeLine + '<div class="actions"><button type="button" class="btn sm ghost" data-act="setup-toggle">' + (S.online ? 'Change connection' : 'Connect Google') + '</button>' + (S.cfg.pinHash || isScript() ? '' : '<span class="small muted">No organizer PIN yet.</span>') + '</div></div>';
-  const fi = ui.suFormInfo; const si = ui.suSheetInfo; const sc = ui.suScriptInfo;
-  const tab = (m, label) => '<button type="button" class="btn sm ' + (mode === m ? '' : 'ghost') + '" data-act="setup-mode" data-mode="' + m + '">' + label + '</button>';
-  let body = '';
-  if (mode === 'script') {
-    body = '<details class="help"><summary>How to set up Apps Script (about 10 minutes)</summary><ol class="steps">' +
-      '<li>Create a new Google Sheet (sheets.new). Open <b>Extensions → Apps Script</b>, delete what is there, paste the script from below, and change <code>ORGANIZER_PIN</code> to your PIN. Save.</li>' +
-      '<li><b>Deploy → New deployment</b> → type <b>Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>. Click Deploy and authorize it (Google warns that the app is unverified: Advanced → Go to project).</li>' +
-      '<li>Copy the <b>Web app URL</b> (ends in <code>/exec</code>) and paste it below, then Test.</li>' +
-      '<li>Save, then <b>Download configured page</b> and put that file on any static host (GitHub Pages, Netlify, your own server). Share that link in the group.</li>' +
-      '<li>After changing the script later: Deploy → Manage deployments → edit → New version.</li></ol></details>' +
-      '<div class="actions"><button type="button" class="btn sm ghost" data-act="setup-copy-script">Copy the script</button><span class="small muted">Paste it into Apps Script, set your PIN in it.</span></div>' +
-      '<textarea class="inp" id="scriptCode" readonly rows="6" style="font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre;overflow:auto">' + esc(APPS_SCRIPT_CODE) + '</textarea>' +
-      '<div class="field"><label class="f" for="suScriptUrl">Web app URL</label><input class="inp" id="suScriptUrl" data-ui="suScriptUrl" value="' + esc(ui.suScriptUrl) + '" placeholder="https://script.google.com/macros/s/…/exec"></div>' +
-      '<div class="actions"><button type="button" class="btn sm ghost" data-act="setup-script-test"' + (ui.suTesting ? ' disabled' : '') + '>' + (ui.suTesting ? 'Testing…' : 'Test script') + '</button>' + (sc ? '<span class="small">Works · ' + sc.rows + ' row' + (sc.rows === 1 ? '' : 's') + ' in the sheet</span>' : (c.scriptUrl ? '<span class="small muted">Saved script URL</span>' : '')) + '</div>' +
-      (ui.suScriptErr ? '<div class="note bad">' + esc(ui.suScriptErr) + '</div>' : '') +
-      '<div class="small muted">The PIN lives in the script, so organizer actions are checked by Google, not just by this page. Emails (roster, payment reminders) go out from your Google account.</div>';
-  } else {
-    body = '<details class="help"><summary>How to set up the Form + Sheet (about 10 minutes)</summary><ol class="steps">' +
-      '<li>Create a Google Form with three <b>Short answer</b> questions, in this order: <code>Name</code> (required), <code>Email</code>, <code>Action</code>. In the form settings leave "Collect email addresses" off and "Limit to 1 response" off, so nobody needs to sign in.</li>' +
-      '<li>In the form, open the ⋮ menu → <b>Get pre-filled link</b>. Type exactly <code>Name</code>, <code>Email</code> and <code>join</code> into the three fields, click <b>Get link</b>, copy it and paste it below.</li>' +
-      '<li>Open the form\'s <b>Responses</b> tab → <b>Link to Sheets</b> → create a new spreadsheet. In that spreadsheet: <b>File → Share → Publish to web</b>, pick the <code>Form Responses 1</code> sheet, choose <b>Comma-separated values (.csv)</b>, click Publish and paste the link below. (A normal sheet link also works if sharing is set to "Anyone with the link", and it updates faster.)</li>' +
-      '<li>Set an organizer PIN, save, then <b>Download configured page</b> and put that file on any static host (GitHub Pages, Netlify, your own server). Share that link in the group.</li></ol></details>' +
-      '<div class="field"><label class="f" for="suFormLink">Google Form pre-filled link</label><input class="inp" id="suFormLink" data-ui="suFormLink" value="' + esc(ui.suFormLink) + '" placeholder="https://docs.google.com/forms/d/e/…/viewform?usp=pp_url&entry.…"></div>' +
-      '<div class="actions"><button type="button" class="btn sm ghost" data-act="setup-form-check">Check form link</button>' + (fi ? '<span class="small">Form <code>…' + esc(fi.formId.slice(-8)) + '</code> · fields ' + esc(fi.entries.name) + ', ' + esc(fi.entries.email) + ', ' + esc(fi.entries.action) + (fi.byValue ? '' : ' (matched by order)') + '</span>' : (c.formId ? '<span class="small muted">Saved form …' + esc(c.formId.slice(-8)) + '</span>' : '')) + '</div>' +
-      (ui.suFormErr ? '<div class="note bad">' + esc(ui.suFormErr) + '</div>' : '') +
-      '<div class="field"><label class="f" for="suSheetLink">Google Sheet link (published CSV, or a sheet shared with anyone)</label><input class="inp" id="suSheetLink" data-ui="suSheetLink" value="' + esc(ui.suSheetLink) + '" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?output=csv"></div>' +
-      '<div class="actions"><button type="button" class="btn sm ghost" data-act="setup-sheet-test"' + (ui.suTesting ? ' disabled' : '') + '>' + (ui.suTesting ? 'Testing…' : 'Test sheet link') + '</button>' + (si ? '<span class="small">Reads fine · ' + si.rows + ' row' + (si.rows === 1 ? '' : 's') + ' · columns: ' + esc(si.header.join(', ')) + '</span>' : (c.csvUrl ? '<span class="small muted">Saved sheet link</span>' : '')) + '</div>' +
-      (ui.suSheetErr ? '<div class="note bad">' + esc(ui.suSheetErr) + '</div>' : '') +
-      '<div class="field"><label class="f" for="suPin">Organizer PIN ' + (c.pinHash ? '(set · leave empty to keep)' : '(required before sharing)') + '</label><input class="inp" id="suPin" data-ui="suPin" type="password" autocomplete="new-password" value="' + esc(ui.suPin) + '" placeholder="4 or more characters"></div>';
-  }
-  return '<div class="sub"><h2 class="sec">Setup</h2>' + modeLine + art +
-    '<div class="actions">' + tab('script', 'Apps Script (recommended)') + tab('form', 'Form + Sheet') + '</div>' + body +
+  const ui = U(); const d = S.data;
+  const conn = d.mode === 'local' ? '<div class="note">Demo mode: everything is stored on this device only.</div>' : '<div class="note ok">Connected to Firebase project <code>' + esc(B.projectId) + '</code>. Changes reach everyone instantly.</div>';
+  const demo = d.mode === 'local' ? '<div class="actions">' + (ui.clearConfirm ? '<span class="small">Reset the demo data on this device?</span><button type="button" class="btn sm danger" data-act="clear-yes">Reset</button><button type="button" class="btn sm ghost" data-act="clear-no">Cancel</button>' : '<button type="button" class="btn xs danger" data-act="clear-ask">Reset demo data</button>') + '</div>' : '';
+  if (!ui.setupOpen) return '<div class="sub"><h2 class="sec">Settings</h2>' + conn + '<div class="actions"><button type="button" class="btn sm ghost" data-act="setup-toggle">Edit group settings</button></div>' + demo + '</div>';
+  return '<div class="sub"><h2 class="sec">Settings</h2>' + conn +
     '<div class="grid2"><div class="field"><label class="f" for="suTitle">Group name</label><input class="inp" id="suTitle" data-ui="suTitle" value="' + esc(ui.suTitle) + '" placeholder="Volleyball"></div><div class="field"><label class="f" for="suOrganizer">Organizer name (shown next to the price)</label><input class="inp" id="suOrganizer" data-ui="suOrganizer" value="' + esc(ui.suOrganizer) + '"></div></div>' +
-    '<div class="field"><label class="f" for="suPageUrl">Public link of this page (used in the announcement text)</label><input class="inp" id="suPageUrl" data-ui="suPageUrl" value="' + esc(ui.suPageUrl) + '" placeholder="https://…/volleyball.html"></div>' +
-    (mode === 'form' ? '' : '<div class="field"><label class="f" for="suPin">Local organizer PIN (only used while this page is not connected)</label><input class="inp" id="suPin" data-ui="suPin" type="password" autocomplete="new-password" value="' + esc(ui.suPin) + '" placeholder="optional"></div>') +
-    '<div class="actions"><button type="button" class="btn sm" data-act="setup-save">Save on this device</button><button type="button" class="btn sm ghost" data-act="setup-toggle">Close</button></div>' +
-    (ui.suSaved ? '<div class="note ok">Saved. ' + (S.online ? 'The page is now connected.' : 'Finish the connection to go online.') + '</div>' : '') +
-    '<div class="hr"></div><div class="small muted">Publish</div>' +
-    '<div class="actions"><button type="button" class="btn sm outline" data-act="setup-download"' + (S.online && (isScript() || c.pinHash) ? '' : ' disabled') + '>Download configured page</button><button type="button" class="btn sm ghost" data-act="setup-copy">Copy config</button>' + (S.embeddedCfg && store.get('vb.cfg', null) ? '<button type="button" class="btn sm ghost" data-act="setup-reset">Use built-in config</button>' : '') + '</div>' +
-    (S.online && (isScript() || c.pinHash) ? '' : '<div class="tip">Download needs a saved, tested connection' + (mode === 'form' ? ' and a PIN' : '') + '.</div>') +
-    '<div class="hr"></div><div class="actions">' + (ui.clearConfirm ? '<span class="small">Clear sign-ups, drafts and organizer session on this device?</span><button type="button" class="btn sm danger" data-act="clear-yes">Clear</button><button type="button" class="btn sm ghost" data-act="clear-no">Cancel</button>' : '<button type="button" class="btn xs danger" data-act="clear-ask">Clear local data</button>') + '</div></div>';
+    '<div class="field"><label class="f" for="suPageUrl">Public link of this page (used in the announcement and calendar)</label><input class="inp" id="suPageUrl" data-ui="suPageUrl" value="' + esc(ui.suPageUrl) + '" placeholder="https://…"></div>' +
+    '<div class="actions"><button type="button" class="btn sm" data-act="setup-save">Save for everyone</button><button type="button" class="btn sm ghost" data-act="setup-toggle">Close</button></div>' +
+    (ui.suSaved ? '<div class="note ok">Saved.</div>' : '') + demo + '</div>';
 }
 function footerHTML(vm) {
   return '<div class="footer">First come, first served. The first ' + (vm.capacity || 'N') + ' on the list play; everyone after that is on the bench and moves up when someone leaves. The final roster is made from players who have paid.</div>';
@@ -1107,7 +957,7 @@ function footerHTML(vm) {
 /* ================= render ================= */
 function inputFocused() { const a = document.activeElement; const app = $('#app'); if (!a || !app || !app.contains(a)) return false; if (/^(TEXTAREA|SELECT)$/.test(a.tagName)) return true; return a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit)$/.test(a.type); }
 function render() {
-  if (!S.vm) recompute();
+  if (!S.vm) S.vm = buildVM(S.data);
   syncEventForm();
   const html = viewHTML();
   if (html === S.lastHTML) { paintStatus(); return; }
@@ -1128,10 +978,10 @@ function syncEventForm() {
 
 /* ================= actions ================= */
 function newEventId(date) {
-  const base = (date || localDateStr(new Date())); const cur = S.vm.eventId;
-  if (cur && cur.startsWith(base)) { const m = cur.match(/-(\d+)$/); return base + '-' + ((m ? +m[1] : 1) + 1); }
-  return base;
+  const base = date || localDateStr(new Date()); const ids = new Set((S.data.sessions || []).map(s => s.id));
+  if (!ids.has(base)) return base; let i = 2; while (ids.has(base + '-' + i)) i++; return base + '-' + i;
 }
+function eventFields() { const p = eventPayload(''); delete p.id; return p; }
 function eventPayload(id) {
   const e = U().ev || {}; let cl = uiCourts(e); if (!cl.length) cl = ['4v4'];
   const n4 = cl.filter(f => f === '4v4').length, n3 = cl.length - n4;
@@ -1139,72 +989,78 @@ function eventPayload(id) {
   return { id, date: e.date || localDateStr(new Date()), time: e.time || '', place: normName(e.place), courts: cl.length, format: n4 && n3 ? 'mixed' : (n3 ? '3v3' : '4v4'), courtsList: cl, price: normName(e.price), note: normName(e.note), opensAt: (e.opensAt || '').trim(), duration: dur };
 }
 const actions = {
-  'refresh': () => refresh(),
-  'clear-examples': () => { S.localRows = S.localRows.filter(r => !r.example); store.set('vb.rows', S.localRows); S.drafts = {}; store.set('vb.drafts', S.drafts); recompute(); render(); },
+  'clear-examples': async () => { if (B.clearExamples) await B.clearExamples(); S.drafts = {}; store.set('vb.drafts', S.drafts); },
   'join': async () => {
-    const ui = U(); const name = normName(ui.joinName); const email = normEmail(ui.joinEmail);
+    const ui = U(); const name = normName(ui.joinName).slice(0, 60); const email = normEmail(ui.joinEmail);
     ui.joinErr = ''; ui.dup = null;
-    if (S.vm.played || !signupsOpen(S.vm.event)) { render(); return; }
+    if (!S.vm.event || S.vm.played || !signupsOpen(S.vm.event) || ui.joining) { render(); return; }
     if (!name) { ui.joinErr = 'Please enter your name.'; render(); return; }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ui.joinErr = 'That email doesn\'t look right.'; render(); return; }
-    const k = keyOf(name, email); const existing = S.vm.people.get(k);
-    if (existing && existing.active) { ui.dup = { name: existing.name, key: k }; render(); return; }
-    S.me = { name, email, key: k }; store.set('vb.me', S.me); store.set('vb.last', { name, email });
-    await submitRow({ name, email, action: 'join' });
+    const existing = S.vm.attendees.find(p => p.name.toLowerCase() === name.toLowerCase());
+    if (existing) { ui.dup = { name: existing.name }; render(); return; }
+    store.set('vb.last', { name, email });
+    ui.joining = true; render();
+    await run(() => B.join({ sessionId: S.vm.eventId, name, email, guestOf: '' }), 'join');
+    ui.joining = false; render();
   },
   'guest-open': () => { U().guestOpen = true; render(); },
   'guest-cancel': () => { U().guestOpen = false; U().guestName = ''; render(); },
   'guest-add': async () => {
-    const ui = U(); const name = normName(ui.guestName); const me = S.me; if (!me) return;
+    const ui = U(); const name = normName(ui.guestName).slice(0, 60); const me = S.vm.myKey; if (!me) return;
     if (!name) { toast('Enter your friend\'s name.'); return; }
-    const ex = S.vm.people.get(keyOf(name, '')); if (ex && ex.active) { toast(name + ' is already on the list.'); return; }
+    if (S.vm.attendees.some(p => p.name.toLowerCase() === name.toLowerCase())) { toast(name + ' is already on the list.'); return; }
     ui.guestOpen = false; ui.guestName = '';
-    await submitRow({ name, email: '', action: 'join:guest=' + me.key });
+    await run(() => B.join({ sessionId: S.vm.eventId, name, email: '', guestOf: me }), 'join');
   },
-  'guest-remove': async (el) => { const g = S.vm.people.get(el.dataset.key); if (!g) return; await submitRow({ name: g.name, email: '', action: 'leave' }); },
+  'guest-remove': async (el) => { const g = S.vm.people.get(el.dataset.key); if (!g) return; await run(() => B.leave(g.key), 'leave'); },
   'cal-ics': async () => { const ev = S.vm.event; if (!ev) return; await saveFile('volleyball-' + (ev.date || 'session') + '.ics', icsText(ev), 'text/calendar'); },
-  'thats-me': () => { const ui = U(); if (ui.dup) { S.me = { name: ui.dup.name, email: '', key: ui.dup.key }; store.set('vb.me', S.me); ui.dup = null; render(); } },
   'leave-ask': () => { U().leaveConfirm = true; render(); },
   'leave-no': () => { U().leaveConfirm = false; render(); },
-  'leave-yes': async () => { const me = S.me; U().leaveConfirm = false; if (!me) return; await submitRow({ name: me.name, email: me.email || '', action: 'leave' }); },
-  'org-open': () => { U().unlockOpen = true; U().pinErr = ''; render(); },
-  'org-cancel': () => { U().unlockOpen = false; U().pin = ''; render(); },
-  'org-unlock': async () => {
-    const ui = U(); const pin = ui.pin;
-    if (S.online && isScript()) {
-      ui.orgBusy = true; ui.pinErr = ''; render();
-      try { await scriptPost({ type: 'auth', pin }); S.org = { pin }; }
-      catch (e) { ui.orgBusy = false; ui.pinErr = /wrong/i.test(e && e.message) ? 'Wrong PIN.' : 'Could not check the PIN: ' + ((e && e.message) || 'no connection'); render(); return; }
-      ui.orgBusy = false;
-    } else if (S.cfg.pinHash) { if (sha256((S.cfg.pinSalt || '') + ':' + pin) !== S.cfg.pinHash) { ui.pinErr = 'Wrong PIN.'; render(); return; } S.org = { pin }; }
-    else S.org = { pin: '' };
-    store.set('vb.org', S.org); ui.pin = ''; ui.pinErr = ''; ui.unlockOpen = false; ui.evDirty = false; ui.suTitle = S.cfg.title || ''; ui.suOrganizer = S.cfg.organizer || ''; render();
+  'leave-yes': async () => { U().leaveConfirm = false; const k = S.vm.myKey; if (!k) { render(); return; } await run(() => B.leave(k), 'leave'); },
+  'org-open': () => { U().orgOpen = true; U().orgErr = ''; render(); },
+  'org-cancel': () => { U().orgOpen = false; U().orgErr = ''; render(); },
+  'org-signin': async () => {
+    const ui = U(); ui.orgBusy = true; ui.orgErr = ''; render();
+    try { await B.signIn(); } catch (e) { ui.orgErr = S.data.mode === 'firebase' ? fbExplain(e, 'auth') : ((e && e.message) || 'Could not sign in'); }
+    ui.orgBusy = false; ui.evDirty = false; render();
   },
-  'org-lock': () => { S.org = null; store.del('vb.org'); U().setupOpen = false; U().roster = { mode: 'closed', sel: null, id: null }; render(); },
-  'paid-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await orgSubmit((p.paid ? 'unpaid:' : 'paid:') + k); },
+  'org-signout': async () => { const ui = U(); ui.orgOpen = false; ui.setupOpen = false; ui.roster = { mode: 'closed', sel: null, id: null }; await run(() => B.signOut(), 'auth'); render(); },
+  'paid-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { paid: !p.paid }), 'org'); },
   'remove-ask': (el) => { U().removeConfirm = el.dataset.key; render(); },
   'remove-no': () => { U().removeConfirm = null; render(); },
-  'remove-yes': async (el) => { const k = el.dataset.key; U().removeConfirm = null; await orgSubmit('remove:' + k); },
+  'remove-yes': async (el) => { const k = el.dataset.key; U().removeConfirm = null; await run(() => B.updateSignup(k, { status: 'removed' }), 'org'); },
   'add-player': async () => {
-    const ui = U(); const name = normName(ui.addName); const email = normEmail(ui.addEmail);
+    const ui = U(); const name = normName(ui.addName).slice(0, 60); const email = normEmail(ui.addEmail);
     if (!name) { toast('Enter a name first.'); return; }
-    const k = keyOf(name, email); const ex = S.vm.people.get(k); if (ex && ex.active) { toast(name + ' is already on the list.'); return; }
-    ui.addName = ''; ui.addEmail = ''; await submitRow({ name, email, action: 'join' });
+    if (!S.vm.eventId) { toast('Start a session first.'); return; }
+    if (S.vm.attendees.some(p => p.name.toLowerCase() === name.toLowerCase())) { toast(name + ' is already on the list.'); return; }
+    ui.addName = ''; ui.addEmail = ''; await run(() => B.adminAdd({ sessionId: S.vm.eventId, name, email }), 'org');
   },
-  'ev-update': async () => { if (!S.vm.eventId) return; const p = eventPayload(S.vm.eventId); U().evDirty = false; await orgSubmit('event:' + JSON.stringify(p)); },
+  'ev-update': async () => { if (!S.vm.eventId) return; const f = eventFields(); U().evDirty = false; await run(() => B.updateSession(S.vm.eventId, f), 'org'); toast('Session updated'); },
   'ev-new-ask': () => { if (!S.vm.event) { actions['ev-new-yes'](); return; } U().newConfirm = true; render(); },
   'ev-new-no': () => { U().newConfirm = false; render(); },
+  'ev-new-yes': async () => {
+    const ui = U(); const f = eventFields(); const id = newEventId(f.date);
+    ui.newConfirm = false; ui.evDirty = false; ui.roster = { mode: 'closed', sel: null, id: null };
+    let prev = null;
+    if (S.vm.eventId) { await ensureRosterSaved(ctxFor(null)); prev = { id: S.vm.eventId, summary: summaryOf(S.vm) }; }
+    await run(() => B.createSession({ id, fields: f, prev }), 'org');
+  },
   'hist-toggle': () => { U().histOpen = !U().histOpen; render(); },
   'done-ask': () => { U().doneConfirm = true; U().noshowSel = {}; render(); },
   'done-no': () => { U().doneConfirm = false; render(); },
   'noshow-sel': (el) => { const sel = U().noshowSel; if (el.checked) sel[el.dataset.key] = true; else delete sel[el.dataset.key]; },
   'done-yes': async () => {
-    const ui = U(); ui.doneConfirm = false; if (!S.vm.eventId) return; const id = S.vm.eventId;
+    const ui = U(); ui.doneConfirm = false; if (!S.vm.eventId) return; const id = S.vm.eventId; const sel = Object.assign({}, ui.noshowSel || {}); ui.noshowSel = {};
     await ensureRosterSaved(ctxFor(null));
-    for (const k of Object.keys(ui.noshowSel || {})) { if (S.vm.people.get(k)) await orgSubmit('noshow:' + k); }
-    ui.noshowSel = {}; await orgSubmit('done:' + id); toast('Session marked as played');
+    const keys = Object.keys(sel).filter(k => S.vm.people.get(k));
+    if (keys.length) await run(() => B.updateSignups(keys, { noshow: true }), 'org');
+    const summary = summaryOf(S.vm, sel);
+    const ok = await run(() => B.markPlayed(id, summary).then(() => true), 'org');
+    if (ok) toast('Session marked as played');
   },
-  'noshow-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await orgSubmit((p.noshow ? 'showed:' : 'noshow:') + k); },
+  'noshow-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { noshow: !p.noshow }), 'org'); },
+  'reopen': async () => { if (!S.vm.eventId) return; await run(() => B.reopen(S.vm.eventId), 'org'); },
   'ev-copy-last': () => {
     const src = S.vm.event || (S.vm.history.length ? S.vm.history[S.vm.history.length - 1].event : null); if (!src) return;
     const cl = courtList(src); const d = eventDateObj(src) || new Date(); const next = new Date(d); next.setDate(next.getDate() + 7);
@@ -1217,32 +1073,16 @@ const actions = {
   'reminder-copy': () => { const unpaid = S.vm.playing.filter(p => !p.paid && !p.noshow); copyText(reminderText(S.vm, unpaid)); },
   'allpaid-ask': () => { U().allPaidConfirm = true; render(); },
   'allpaid-no': () => { U().allPaidConfirm = false; render(); },
-  'allpaid-yes': async () => { U().allPaidConfirm = false; const unpaid = S.vm.playing.filter(p => !p.paid && !p.noshow); for (const p of unpaid) await orgSubmit('paid:' + p.key); toast('Marked ' + unpaid.length + ' as paid'); },
-  'mail-cancel': () => { U().mailConfirm = ''; render(); },
-  'email-reminder-ask': () => { U().mailConfirm = 'reminder'; render(); },
-  'email-reminder-yes': async () => {
-    const ui = U(); ui.mailConfirm = ''; const unpaid = S.vm.playing.filter(p => !p.paid && !p.noshow && p.email); render();
-    try { const r = await sendEmail(unpaid.map(p => p.email), (S.cfg.title || 'Volleyball') + ' · payment for ' + fmtEventDate(S.vm.event), reminderText(S.vm, unpaid)); toast('Sent to ' + (r.sent || unpaid.length)); }
-    catch (e) { toast('Email failed: ' + ((e && e.message) || 'error')); }
+  'allpaid-yes': async () => { U().allPaidConfirm = false; const unpaid = S.vm.playing.filter(p => !p.paid && !p.noshow); if (!unpaid.length) { render(); return; } const ok = await run(() => B.updateSignups(unpaid.map(p => p.key), { paid: true }).then(() => true), 'org'); if (ok) toast('Marked ' + unpaid.length + ' as paid'); },
+  'ratings-toggle': () => { U().ratingsOpen = !U().ratingsOpen; render(); },
+  'skill-set': async (el) => {
+    const n = el.dataset.name; const v = +el.dataset.n; const label = el.dataset.label || n; const next = S.skills[n] === v ? 0 : v;
+    if (next) S.skills[n] = next; else delete S.skills[n]; render();
+    await run(() => B.setRating(n, label, next || null), 'org');
   },
-  'email-roster-ask': () => { U().mailConfirm = 'roster'; render(); },
-  'email-roster-yes': async () => {
-    const ui = U(); ui.mailConfirm = ''; const ctx = activeCtx(); const d = activeRosterData(); if (!ctx || !d) return; render();
-    const to = ctx.attendees.filter(p => p.email).map(p => p.email);
-    try { await ensureRosterSaved(ctx); const r = await sendEmail(to, (S.cfg.title || 'Volleyball') + ' · teams for ' + fmtEventDate(ctx.ev), rosterText(d)); toast('Sent to ' + (r.sent || to.length)); }
-    catch (e) { toast('Email failed: ' + ((e && e.message) || 'error')); }
-  },
-  'reopen': async () => { if (!S.vm.eventId) return; await orgSubmit('reopen:' + S.vm.eventId); },
-  'ev-new-yes': async () => { const e = U().ev || {}; const p = eventPayload(newEventId(e.date)); U().newConfirm = false; U().evDirty = false; U().roster = { mode: 'closed', sel: null, id: null }; await ensureRosterSaved(ctxFor(null)); await orgSubmit('event:' + JSON.stringify(p)); },
   'roster-open': (el) => { openRoster(el.dataset.id || null); render(); },
   'roster-shuffle': () => { const ctx = activeCtx(); if (!ctx) return; setDraft(ctx, generateTeams(ctx, true)); U().roster.sel = null; render(); },
   'roster-balance': () => { const ctx = activeCtx(); if (!ctx) return; setDraft(ctx, balanceTeams(ctx)); U().roster.sel = null; render(); toast('Balanced by rating'); },
-  'ratings-toggle': () => { U().ratingsOpen = !U().ratingsOpen; render(); },
-  'skill-set': async (el) => {
-    const n = el.dataset.name; const v = +el.dataset.n; if (S.skills[n] === v) { delete S.skills[n]; } else S.skills[n] = v;
-    store.set('vb.skills', S.skills); render();
-    if (S.online && S.org && S.org.pin && S.skills[n]) await orgSubmit('skill:' + skillHash(n) + ':' + v);
-  },
   'roster-close': () => { U().roster = { mode: 'closed', sel: null, id: null }; render(); },
   'roster-chip': (el) => {
     const r = U().roster; const t = +el.dataset.t, i = +el.dataset.i; const ctx = activeCtx(); const d = draftFor(ctx); if (!d) return;
@@ -1267,69 +1107,23 @@ const actions = {
   'copy-final': () => { const vm = S.vm; const r = vm.roster; const ctx = ctxFor(null); if (!ctx || !r || !Array.isArray(r.t)) return; copyText(rosterText(rosterData(ctx, teamsFromNames(ctx, r.t), Array.isArray(r.b) ? r.b : []))); },
   'export-pdf': async () => { const d = activeRosterData(); const ctx = activeCtx(); if (!d || !ctx) return; toast('Building PDF…'); try { const blob = await makePDF(d); await saveFile('volleyball-roster-' + (ctx.ev.date || 'roster') + '.pdf', blob, 'application/pdf'); } catch (e) { toast('Could not build the PDF. Try the HTML file.'); } await ensureRosterSaved(ctx); },
   'export-html': async () => { const d = activeRosterData(); const ctx = activeCtx(); if (!d || !ctx) return; await saveFile('volleyball-roster-' + (ctx.ev.date || 'roster') + '.html', rosterHTML(d), 'text/html'); await ensureRosterSaved(ctx); },
-  'setup-toggle': () => { const ui = U(); ui.setupOpen = !ui.setupOpen; ui.suSaved = false; if (ui.setupOpen) { ui.suTitle = S.cfg.title || ''; ui.suOrganizer = S.cfg.organizer || ''; ui.suPageUrl = S.cfg.pageUrl || (/^https?:/.test(location.href) && !inArtifact() ? location.href.split('#')[0] : ''); ui.suMode = S.cfg.mode || ''; } render(); },
-  'setup-form-check': () => { const ui = U(); const r = parseFormLink(ui.suFormLink); ui.suFormErr = r.error || ''; ui.suFormInfo = r.error ? null : r; render(); },
-  'setup-sheet-test': async () => {
-    const ui = U(); const r = sheetCandidates(ui.suSheetLink); ui.suSheetErr = r.error || ''; ui.suSheetInfo = null; if (r.error) { render(); return; }
-    if (inArtifact()) { ui.suSheetErr = 'This preview can\'t call Google, so the test can\'t run here. Save the link, click "Download configured page", open that file on your computer and run the test there; then host it.'; render(); return; }
-    ui.suTesting = true; render();
-    let found = null, lastErr = '';
-    for (const url of r.list) {
-      try { const text = await fetchCSV(url); const parsed = csvToRows(text); if (parsed.header.length >= 2) { found = { url, rows: parsed.rows.length, header: parsed.header }; break; } lastErr = 'Response did not look like a CSV table.'; }
-      catch (e) { lastErr = (e && e.message) || 'error'; }
-    }
-    ui.suTesting = false;
-    if (found) ui.suSheetInfo = found;
-    else ui.suSheetErr = 'Could not read the sheet (' + lastErr + '). Check that it is published to the web as CSV, or shared with "Anyone with the link".';
-    render();
+  'setup-toggle': () => { const ui = U(); ui.setupOpen = !ui.setupOpen; ui.suSaved = false; if (ui.setupOpen) { ui.suTitle = S.cfg.title || ''; ui.suOrganizer = S.cfg.organizer || ''; ui.suPageUrl = S.cfg.pageUrl || (/^https?:/.test(location.href) && !inArtifact() ? location.href.split('#')[0].split('?')[0] : ''); } render(); },
+  'setup-save': async () => {
+    const ui = U(); const patch = { title: normName(ui.suTitle).slice(0, 60), organizer: normName(ui.suOrganizer).slice(0, 60), pageUrl: ui.suPageUrl.trim().slice(0, 300) };
+    const ok = await run(() => Promise.resolve(B.saveConfig(patch)).then(() => true), 'org'); ui.suSaved = !!ok; render();
   },
-  'setup-mode': (el) => { U().suMode = el.dataset.mode; render(); },
-  'setup-copy-script': () => copyText(APPS_SCRIPT_CODE),
-  'setup-script-test': async () => {
-    const ui = U(); const url = ui.suScriptUrl.trim(); ui.suScriptErr = ''; ui.suScriptInfo = null;
-    if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(url)) { ui.suScriptErr = 'Paste the web app URL from the deployment. It starts with https://script.google.com/macros/s/ and ends in /exec.'; render(); return; }
-    if (inArtifact()) { ui.suScriptErr = 'This preview can\'t call Google, so the test can\'t run here. Save the URL, click "Download configured page", open that file on your computer and run the test there; then host it.'; render(); return; }
-    ui.suTesting = true; render();
-    try { const rows = await scriptGet(url); ui.suScriptInfo = { url, rows: rows.length }; }
-    catch (e) { ui.suScriptErr = 'Could not reach the script (' + ((e && e.message) || 'error') + '). Usual causes: the deployment\'s "Who has access" is not set to Anyone, the URL is not the /exec one, or the script was edited without creating a new deployment version.'; }
-    ui.suTesting = false; render();
-  },
-  'setup-save': () => {
-    const ui = U(); const cfg = Object.assign({}, S.cfg); const mode = ui.suMode || cfg.mode || 'script';
-    cfg.mode = mode;
-    if (mode === 'script') {
-      if (ui.suScriptInfo) cfg.scriptUrl = ui.suScriptInfo.url;
-      else if (ui.suScriptUrl.trim()) { if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(ui.suScriptUrl.trim())) { ui.suScriptErr = 'That does not look like a web app URL (…/exec).'; render(); return; } cfg.scriptUrl = ui.suScriptUrl.trim(); }
-    } else {
-      if (ui.suFormInfo) { cfg.formId = ui.suFormInfo.formId; cfg.entries = ui.suFormInfo.entries; }
-      else if (ui.suFormLink.trim()) { const r = parseFormLink(ui.suFormLink); if (r.error) { ui.suFormErr = r.error; render(); return; } cfg.formId = r.formId; cfg.entries = r.entries; ui.suFormInfo = r; }
-      if (ui.suSheetInfo) cfg.csvUrl = ui.suSheetInfo.url;
-      else if (ui.suSheetLink.trim()) { const r = sheetCandidates(ui.suSheetLink); if (r.error) { ui.suSheetErr = r.error; render(); return; } cfg.csvUrl = r.list[0]; }
-    }
-    cfg.title = normName(ui.suTitle); cfg.organizer = normName(ui.suOrganizer); cfg.pageUrl = ui.suPageUrl.trim();
-    const pin = ui.suPin.trim();
-    if (pin) { if (pin.length < 4) { toast('Use at least 4 characters for the PIN.'); return; } cfg.pinSalt = randomHex(8); cfg.pinHash = sha256(cfg.pinSalt + ':' + pin); if (!(mode === 'script' && isOnline(cfg))) { S.org = { pin }; store.set('vb.org', S.org); } ui.suPin = ''; }
-    S.cfg = cfg; store.set('vb.cfg', publicCfg()); S.online = isOnline(cfg);
-    if (S.online && mode === 'script' && S.org && !S.org.pin) { S.org = null; store.del('vb.org'); }
-    ui.suSaved = true; ui.suFormLink = ''; ui.suSheetLink = ''; ui.suScriptUrl = ''; S.serverRows = []; S.lastFetch = 0; S.fetchErr = null; recompute(); render(); if (S.online) refresh();
-  },
-  'setup-reset': () => { store.del('vb.cfg'); loadConfig(); U().suSaved = false; recompute(); render(); if (S.online) refresh(); toast('Using the built-in config'); },
-  'setup-download': async () => { await saveFile('volleyball.html', buildConfiguredHTML(publicCfg()), 'text/html'); },
-  'setup-copy': () => copyText(JSON.stringify(publicCfg())),
   'clear-ask': () => { U().clearConfirm = true; render(); },
   'clear-no': () => { U().clearConfirm = false; render(); },
-  'clear-yes': () => { ['vb.pending', 'vb.me', 'vb.org', 'vb.draft', 'vb.drafts', 'vb.last', 'vb.skills', 'vb.pairs'].forEach(k => store.del(k)); store.set('vb.rows', []); S.localRows = []; S.pending = []; S.me = null; S.org = null; S.drafts = {}; U().clearConfirm = false; U().setupOpen = false; U().roster = { mode: 'closed', sel: null, id: null }; recompute(); render(); toast('Cleared'); }
+  'clear-yes': async () => { U().clearConfirm = false; S.drafts = {}; store.set('vb.drafts', S.drafts); if (B.resetDemo) await B.resetDemo(); toast('Demo data reset'); }
 };
 
 /* ================= wiring ================= */
+let B = null;
 function init() {
-  loadConfig();
-  S.pending = store.get('vb.pending', []);
-  S.localRows = store.get('vb.rows', null);
-  if (!S.localRows) { S.localRows = S.online ? [] : seedExamples(); store.set('vb.rows', S.localRows); }
-  const last = store.get('vb.last', null); if (last && !S.ui.joinName) { S.ui.joinName = last.name || ''; S.ui.joinEmail = last.email || ''; }
-  if (S.online && isScript() && S.org && !S.org.pin) { S.org = null; store.del('vb.org'); }
-  recompute(); render();
+  const last = store.get('vb.last', null); if (last) { S.ui.joinName = last.name || ''; S.ui.joinEmail = last.email || ''; }
+  const conf = loadFirebaseConfig();
+  B = conf ? firebaseBackend(conf) : localBackend();
+  S.data = emptyData(B.mode); S.vm = buildVM(S.data); render();
   const app = $('#app');
   app.addEventListener('click', e => {
     const el = e.target.closest('[data-act]'); if (!el || el.tagName === 'INPUT') return;
@@ -1342,26 +1136,27 @@ function init() {
   });
   app.addEventListener('input', e => handleInput(e.target));
   app.addEventListener('toggle', e => { const d = e.target; if (d && d.classList && d.classList.contains('hist') && d.dataset.id) { if (d.open) U().histOpenIds[d.dataset.id] = true; else delete U().histOpenIds[d.dataset.id]; } }, true);
-  app.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'joinName') { actions.join(); } if (e.key === 'Enter' && e.target.id === 'pin') { actions['org-unlock'](); } if (e.key === 'Enter' && e.target.id === 'addName') { actions['add-player'](); } });
+  app.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'joinName') { actions.join(); } if (e.key === 'Enter' && e.target.id === 'addName') { actions['add-player'](); } if (e.key === 'Enter' && e.target.id === 'guestName') { actions['guest-add'](); } });
   app.addEventListener('focusout', () => { if (S.renderPending) setTimeout(() => { if (S.renderPending && !inputFocused()) render(); }, 350); });
-  setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && ev.opensAt && S.openState !== (Date.now() >= new Date(ev.opensAt).getTime())) render(); if (!S.online) return; const fast = Date.now() < S.fastUntil; const every = isScript() ? 12000 : 20000; if (fast ? Date.now() - S.lastFetch > 4500 : Date.now() - S.lastFetch > every) refresh(); else paintStatus(); }, 5000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.online) refresh(); });
-  if (S.online) refresh();
+  setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && ev.opensAt && S.openState !== (Date.now() >= new Date(ev.opensAt).getTime())) render(); else paintStatus(); }, 5000);
+  B.start(onData);
 }
 function handleInput(el) {
   if (!el || !el.dataset || !el.dataset.ui) return;
   const k = el.dataset.ui; const ui = U(); const v = el.type === 'checkbox' ? el.checked : el.value;
   if (k.startsWith('ev')) { const f = k.slice(2, 3).toLowerCase() + k.slice(3); ui.ev = ui.ev || {}; ui.ev[f] = v; ui.evDirty = true; const cp = $('#capPreview'); if (cp) cp.textContent = capacityOf({ courtsList: uiCourts(ui.ev) }); return; }
-  if (k === 'pairsTogether' || k === 'pairsApart') { S.pairs[k === 'pairsTogether' ? 'together' : 'apart'] = v; store.set('vb.pairs', S.pairs); return; }
+  if (k === 'pairsTogether' || k === 'pairsApart') {
+    S.pairs[k === 'pairsTogether' ? 'together' : 'apart'] = v; clearTimeout(pairsTimer);
+    pairsTimer = setTimeout(() => { pairsTimer = null; run(() => B.savePairs(S.pairs), 'org'); }, 800); return;
+  }
   ui[k] = v;
   if (k === 'joinName' || k === 'joinEmail') { ui.joinErr = ''; ui.dup = null; }
-  if (k === 'suFormLink') { ui.suFormInfo = null; ui.suFormErr = ''; }
-  if (k === 'suSheetLink') { ui.suSheetInfo = null; ui.suSheetErr = ''; }
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-window.__vb = { sha256, parseCSV, csvToRows, derive, parseFormLink, sheetCandidates, rosterText, S, actions, render, recompute, generateTeams, balanceTeams, announceText, icsText, attendanceStats, makePDF, rosterHTML, buildConfiguredHTML, APPS_SCRIPT_CODE };
+window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, balanceTeams, announceText, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, get B() { return B; } };
 })();
 </script>
+
 <!--artifact:body-end-->
 </body>
 </html>

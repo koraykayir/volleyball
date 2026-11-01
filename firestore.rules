@@ -1,0 +1,77 @@
+rules_version = '2';
+// Security rules for the volleyball sign-up page.
+// Paste into Firebase console → Firestore Database → Rules → Publish.
+// Organizers: add a document to the `admins` collection whose ID is the organizer's Google email (lowercase).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function email() { return request.auth.token.get('email', ''); }
+    function isAdmin() {
+      return signedIn() && email() != '' && request.auth.token.get('email_verified', false) == true
+        && exists(/databases/$(database)/documents/admins/$(email()));
+    }
+    function sessionData(id) { return get(/databases/$(database)/documents/sessions/$(id)).data; }
+    function sessionOpen(id) {
+      let s = sessionData(id);
+      return s.status == 'open' && (s.get('opensAtTs', null) == null || request.time >= s.opensAtTs);
+    }
+
+    // Organizer list: maintained by hand in the console. Each person may only check their own entry.
+    match /admins/{adminEmail} {
+      allow read: if signedIn() && email() == adminEmail;
+      allow write: if false;
+    }
+
+    // Group settings, sessions: public to read, organizers write.
+    match /config/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /sessions/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Skill ratings and team pairs: organizers only.
+    match /ratings/{doc} {
+      allow read, write: if isAdmin();
+    }
+
+    // Emails: written by the player together with their sign-up, readable by organizers only.
+    match /contacts/{signupId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() || (signedIn()
+        && getAfter(/databases/$(database)/documents/signups/$(signupId)).data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['email', 'sessionId'])
+        && request.resource.data.email is string && request.resource.data.email.size() <= 120);
+      allow update, delete: if isAdmin();
+    }
+
+    // Sign-ups: anyone can read the list. Players add themselves (and guests) while the session is open,
+    // and can only mark their own entry as left. Organizers can change anything.
+    match /signups/{id} {
+      allow read: if true;
+      allow create: if isAdmin() || (signedIn()
+        && request.resource.data.keys().hasOnly(['sessionId', 'name', 'uid', 'createdAt', 'status', 'paid', 'noshow', 'guestOf', 'addedBy'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.status == 'active'
+        && request.resource.data.paid == false && request.resource.data.noshow == false
+        && request.resource.data.addedBy == 'self'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.guestOf is string
+        && (request.resource.data.guestOf == ''
+            || get(/databases/$(database)/documents/signups/$(request.resource.data.guestOf)).data.uid == request.auth.uid)
+        && sessionOpen(request.resource.data.sessionId));
+      allow update: if isAdmin() || (signedIn()
+        && resource.data.uid == request.auth.uid
+        && resource.data.status == 'active'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'leftAt'])
+        && request.resource.data.status == 'left'
+        && request.resource.data.leftAt == request.time
+        && sessionData(resource.data.sessionId).status == 'open');
+      allow delete: if isAdmin();
+    }
+  }
+}
