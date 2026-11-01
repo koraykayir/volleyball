@@ -633,15 +633,78 @@ function ctxFor(id) {
   return { id, ev: s.event || {}, attendees, people, roster: s.roster, current: false, played: s.played };
 }
 function activeCtx() { return ctxFor(U().roster.id); }
-function generateTeams(ctx, random) {
+/* ---- roster generation ----
+   1. Familiarity: for every past session with saved teams, two players who were on the same court
+      (same team or opponents) get +1. 2. Courts: players are placed so that the familiarity inside
+      each court is as high as possible (hill climbing with restarts). 3. Teams: each court is split
+      into two teams whose average levels are as close as possible (exhaustive, a court has at most 8).
+   Keep-together pairs share a team, keep-apart pairs never do (when possible). */
+function familiarity(ctx) {
+  const F = new Map(); let sessions = 0;
+  const add = (a, b) => { if (a === b) return; const k = a < b ? a + '|' + b : b + '|' + a; F.set(k, (F.get(k) || 0) + 1); };
+  S.vm.history.concat(S.vm.eventId && S.vm.roster ? [{ id: S.vm.eventId, roster: S.vm.roster }] : []).forEach(s => {
+    if (s.id === ctx.id || !s.roster || !Array.isArray(s.roster.t)) return; sessions++;
+    const t = s.roster.t;
+    for (let c = 0; c < t.length; c += 2) {
+      const court = [].concat(Array.isArray(t[c]) ? t[c] : [], Array.isArray(t[c + 1]) ? t[c + 1] : []).map(n => String(n).toLowerCase());
+      for (let i = 0; i < court.length; i++) for (let j = i + 1; j < court.length; j++) add(court[i], court[j]);
+    }
+  });
+  return { get: (a, b) => F.get(a < b ? a + '|' + b : b + '|' + a) || 0, sessions };
+}
+function generateTeams(ctx) {
   const caps = teamCaps(ctx.ev); if (!caps.length) return [];
-  const cap = caps.reduce((a, b) => a + b, 0);
-  let pool = ctx.attendees.filter(p => p.paid).slice(0, cap); if (random) pool = shuffle(pool);
+  const total = caps.reduce((a, b) => a + b, 0);
+  const pool = ctx.attendees.filter(p => p.paid).slice(0, total);
+  if (!pool.length) return caps.map(() => []);
+  const nC = caps.length / 2; const lc = p => p.name.toLowerCase();
+  // how many players each team gets (fill evenly by capacity, as before)
+  const tCount = caps.map(() => 0);
+  pool.forEach(() => { let best = 0, r = Infinity; caps.forEach((c, i) => { const q = tCount[i] / c; if (q < r - 1e-9) { r = q; best = i; } }); tCount[best]++; });
+  const cCount = Array.from({ length: nC }, (_, c) => tCount[2 * c] + tCount[2 * c + 1]);
+  const { together, apart } = parsePairs(ctx);
+  const isPair = (list, a, b) => list.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+  const fam = familiarity(ctx);
+  // units: keep-together pairs move as one
+  const used = new Set(); const units = [];
+  together.forEach(([a, b]) => { const pa = pool.find(p => lc(p) === a), pb = pool.find(p => lc(p) === b); if (pa && pb && !used.has(pa.key) && !used.has(pb.key)) { units.push([pa, pb]); used.add(pa.key); used.add(pb.key); } });
+  pool.forEach(p => { if (!used.has(p.key)) units.push([p]); });
+  // step 1: courts
+  let courts;
+  if (nC === 1) courts = [pool.slice()];
+  else {
+    const score = cs => cs.reduce((s, court) => { let v = 0; for (let i = 0; i < court.length; i++) for (let j = i + 1; j < court.length; j++) v += fam.get(lc(court[i]), lc(court[j])); return s + v; }, 0);
+    let best = null, bestScore = -1;
+    for (let restart = 0; restart < 25; restart++) {
+      const cs = Array.from({ length: nC }, () => []); const room = cCount.slice();
+      for (const u of shuffle(units)) { let c = -1, most = -1; room.forEach((r, i) => { if (r >= u.length && r > most) { most = r; c = i; } }); if (c < 0) c = room.indexOf(Math.max(...room)); u.forEach(p => cs[c].push(p)); room[c] -= u.length; }
+      let cur = score(cs); let improved = true;
+      const unitOf = p => units.find(u => u.includes(p));
+      while (improved) {
+        improved = false;
+        for (let a = 0; a < nC && !improved; a++) for (let b = a + 1; b < nC && !improved; b++) for (const pa of cs[a]) { if (unitOf(pa).length > 1) continue; for (const pb of cs[b]) { if (unitOf(pb).length > 1) continue;
+          const ia = cs[a].indexOf(pa), ib = cs[b].indexOf(pb); cs[a][ia] = pb; cs[b][ib] = pa; const s2 = score(cs);
+          if (s2 > cur) { cur = s2; improved = true; break; } cs[a][ia] = pa; cs[b][ib] = pb; } if (improved) break; }
+      }
+      if (cur > bestScore) { bestScore = cur; best = cs.map(c => c.slice()); }
+    }
+    courts = best;
+  }
+  // step 2: split each court into two teams with the closest average level
   const teams = caps.map(() => []);
-  pool.forEach(p => {
-    let best = 0, bestR = Infinity;
-    caps.forEach((c, i) => { const r = teams[i].length / c; if (r < bestR - 1e-9) { bestR = r; best = i; } });
-    teams[best].push({ k: p.key, n: p.name });
+  courts.forEach((court, c) => {
+    const nA = Math.min(tCount[2 * c], court.length); const n = court.length; let best = null, bestCost = Infinity;
+    const lvl = court.map(p => ratingOf(p.name));
+    for (let mask = 0; mask < (1 << n); mask++) {
+      let k = 0; for (let i = 0; i < n; i++) if (mask & (1 << i)) k++; if (k !== nA) continue;
+      let sa = 0, sb = 0, viol = 0;
+      for (let i = 0; i < n; i++) { if (mask & (1 << i)) sa += lvl[i]; else sb += lvl[i];
+        for (let j = i + 1; j < n; j++) { const same = !!(mask & (1 << i)) === !!(mask & (1 << j)); const a = lc(court[i]), b = lc(court[j]); if (same && isPair(apart, a, b)) viol++; if (!same && isPair(together, a, b)) viol++; } }
+      const diff = Math.abs((nA ? sa / nA : 0) - ((n - nA) ? sb / (n - nA) : 0));
+      const cost = viol * 100 + diff + Math.random() * 1e-6;
+      if (cost < bestCost) { bestCost = cost; best = mask; }
+    }
+    court.forEach((p, i) => teams[(best & (1 << i)) ? 2 * c : 2 * c + 1].push({ k: p.key, n: p.name }));
   });
   return teams;
 }
@@ -653,7 +716,7 @@ function draftFor(ctx) { return ctx && S.drafts[ctx.id] ? S.drafts[ctx.id] : nul
 function setDraft(ctx, teams) { S.drafts[ctx.id] = teams; store.set('vb.drafts', S.drafts); }
 function openRoster(id) {
   const ctx = ctxFor(id); if (!ctx) return;
-  if (!draftFor(ctx)) setDraft(ctx, ctx.roster && Array.isArray(ctx.roster.t) ? teamsFromNames(ctx, ctx.roster.t) : generateTeams(ctx, true));
+  if (!draftFor(ctx)) setDraft(ctx, ctx.roster && Array.isArray(ctx.roster.t) ? teamsFromNames(ctx, ctx.roster.t) : generateTeams(ctx));
   U().roster = { mode: 'edit', sel: null, id: ctx.current ? null : ctx.id };
 }
 function rosterPayload(ctx, teams) {
@@ -1015,7 +1078,7 @@ function playedControlsHTML(vm) {
 }
 function ratingsHTML(ctx) {
   const ui = U(); const { together, apart } = parsePairs(ctx);
-  if (!ui.ratingsOpen) return '<div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Ratings & pairs</button><span class="small muted">Only you see these. "Balance teams" uses them.</span></div>';
+  if (!ui.ratingsOpen) return '<div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Ratings & pairs</button><span class="small muted">Only organizers see these. Generating teams uses them.</span></div>';
   const rows = ctx.attendees.map(p => { const n = p.name.toLowerCase(); const cur = S.skills[n] || 0; return '<div class="rating"><span class="rn">' + esc(p.name) + '</span><span class="rchips">' + [1, 2, 3, 4, 5].map(v => '<button type="button" class="chip' + (cur === v ? ' sel' : '') + '" data-act="skill-set" data-name="' + esc(n) + '" data-label="' + esc(p.name) + '" data-uid="' + esc(p.addedBy === 'self' ? (p.uid || '') : '') + '" data-n="' + v + '">' + v + '</button>').join('') + '</span></div>'; }).join('');
   return '<div class="stack ratings"><div class="actions"><button type="button" class="btn xs ghost" data-act="ratings-toggle">Hide ratings & pairs</button><span class="small muted">1 = beginner, 5 = strong. Players pick their own level once when they register; you can adjust it here. Unrated counts as 3.' + (S.data.mode === 'firebase' ? ' Stored in Firebase, readable by organizers only.' : '') + '</span></div>' +
     '<div class="rlist">' + rows + '</div>' +
@@ -1038,6 +1101,10 @@ function rosterSectionHTML(vm) {
   } else body = rosterEditorHTML(ctx);
   return '<div class="sub"><h2 class="sec">Final roster</h2>' + body + '</div>';
 }
+function rosterHowHTML(ctx) {
+  const f = familiarity(ctx); const multi = courtList(ctx.ev).length > 1;
+  return (multi ? (f.sessions ? 'People who often played together share a court (from ' + f.sessions + ' past session' + (f.sessions === 1 ? '' : 's') + ' with saved teams); ' : 'No saved teams from past sessions yet, so courts are mixed randomly; ') : '') + 'teams are split so their average levels are as close as possible.';
+}
 function rosterEditorHTML(ctx) {
   const r = U().roster; const teams = draftFor(ctx) || [];
   const placed = new Set(); teams.forEach(t => t.forEach(p => placed.add(p.k)));
@@ -1045,10 +1112,10 @@ function rosterEditorHTML(ctx) {
   const data = rosterData(ctx, teams, benchNames); const saved = rosterSaved(ctx, teams);
   if (r.mode === 'edit') {
     const poolChips = pool.map(p => '<button type="button" class="chip' + (r.sel && r.sel.pool === p.key ? ' sel' : '') + (p.paid ? '' : ' unpaid') + '" data-act="roster-pool" data-key="' + esc(p.key) + '">' + esc(p.name) + (p.paid ? '' : ' · not paid') + '</button>').join('') || '<span class="small muted">Everyone is placed.</span>';
-    return '<div class="stack"><div class="legend">Tap a player, then tap another to swap them, or tap "Move here" on a team. Dashed chips haven\'t paid.</div>' +
+    return '<div class="stack"><div class="legend">' + rosterHowHTML(ctx) + ' Tap a player, then tap another to swap them, or tap "Move here" on a team. Dashed chips haven\'t paid.</div>' +
       courtsHTML(teams, { edit: true, sel: r.sel }, ctx) +
       '<div><h2 class="sec"><span class="dot"></span>Not in the roster <span class="cnt">' + pool.length + '</span></h2><div class="chips">' + poolChips + '</div></div>' +
-      '<div class="actions">' + (r.sel && r.sel.t != null ? '<button type="button" class="btn sm danger" data-act="roster-remove">Remove from roster</button>' : '') + '<button type="button" class="btn sm ghost" data-act="roster-shuffle">Shuffle again</button><button type="button" class="btn sm ghost" data-act="roster-balance">Balance teams</button><button type="button" class="btn sm ghost" data-act="roster-close">Close</button><span style="flex:1 1 auto"></span><button type="button" class="btn sm" data-act="roster-preview">Preview</button></div>' +
+      '<div class="actions">' + (r.sel && r.sel.t != null ? '<button type="button" class="btn sm danger" data-act="roster-remove">Remove from roster</button>' : '') + '<button type="button" class="btn sm ghost" data-act="roster-shuffle">Regenerate</button><button type="button" class="btn sm ghost" data-act="roster-close">Close</button><span style="flex:1 1 auto"></span><button type="button" class="btn sm" data-act="roster-preview">Preview</button></div>' +
       ratingsHTML(ctx) + '</div>';
   }
   return '<div class="stack"><div class="preview"><div class="ph"><div><div class="kicker" style="color:var(--muted)">' + esc(data.title) + '</div><h3>' + esc(data.dateLine) + '</h3><div class="muted small">' + esc(data.place) + '</div></div></div>' +
@@ -1216,8 +1283,7 @@ const actions = {
     await run(() => B.setRating(n, label, next || null), 'org');
   },
   'roster-open': (el) => { openRoster(el.dataset.id || null); render(); },
-  'roster-shuffle': () => { const ctx = activeCtx(); if (!ctx) return; setDraft(ctx, generateTeams(ctx, true)); U().roster.sel = null; render(); },
-  'roster-balance': () => { const ctx = activeCtx(); if (!ctx) return; setDraft(ctx, balanceTeams(ctx)); U().roster.sel = null; render(); toast('Balanced by rating'); },
+  'roster-shuffle': () => { const ctx = activeCtx(); if (!ctx) return; setDraft(ctx, generateTeams(ctx)); U().roster.sel = null; render(); toast('New teams generated'); },
   'roster-close': () => { U().roster = { mode: 'closed', sel: null, id: null }; render(); },
   'roster-chip': (el) => {
     const r = U().roster; const t = +el.dataset.t, i = +el.dataset.i; const ctx = activeCtx(); const d = draftFor(ctx); if (!d) return;
