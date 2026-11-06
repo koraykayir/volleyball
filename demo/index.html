@@ -223,7 +223,7 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch (e) {} }
 };
 const pad = n => String(n).padStart(2, '0');
-const normName = s => String(s || '').trim().replace(/\s+/g, ' ');
+const normName = s => String(s || '').replace(/[\/\\]/g, ' ').trim().replace(/\s+/g, ' ');
 const normEmail = s => String(s || '').trim().toLowerCase();
 const keyOf = (name, email) => normName(name).toLowerCase() + (normEmail(email) ? '|' + normEmail(email) : '');
 const shuffle = a => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
@@ -389,7 +389,8 @@ function balanceTeams(ctx) {
 
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v7';
+const APP_VERSION = 'v8';
+const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
   if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'This sign-in method is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
@@ -404,7 +405,8 @@ function fbExplain(e, where) {
 function authText(e) {
   const c = String((e && e.code) || '');
   if (/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c)) return 'Wrong email or password.';
-  if (/email-already-in-use/.test(c)) return 'There is already an account with this email. Log in instead, or use "Forgot password?".';
+  if (/email-already-in-use/.test(c)) return 'There is already an account with this email. Log in instead (with Google if you used Google before), or use "Forgot password?".';
+  if (/vb\/name-taken/.test(c)) return 'That name is already taken in this group. Add your last name or an initial so people can tell you apart.';
   if (/weak-password/.test(c)) return 'Use a password with at least 6 characters.';
   if (/invalid-email/.test(c)) return 'That email doesn\'t look right.';
   if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes and try again.';
@@ -456,10 +458,24 @@ function firebaseBackend(conf) {
     d.profileLoaded = false; d.profile = null;
     if (u.email) { try { const s = await fs.collection('admins').doc(u.email).get(); user.isAdmin = !!s.exists; } catch (e) { user.isAdmin = false; } }
     d.user = user; d.authError = ''; adminSubs();
-    unsubProfile = fs.collection('players').doc(u.uid).onSnapshot(s => { d.profile = s.exists ? (s.data() || {}) : null; d.profileLoaded = true; emit(); }, () => { d.profileLoaded = true; emit(); });
+    unsubProfile = fs.collection('players').doc(u.uid).onSnapshot(s => { d.profile = s.exists ? (s.data() || {}) : null; d.profileLoaded = true; emit(); if (d.profile) claimName(u.uid, d.profile.name); }, () => { d.profileLoaded = true; emit(); });
     emit();
   }
   const me = () => { if (!auth.currentUser || auth.currentUser.isAnonymous) throw Object.assign(new Error('Please log in first.'), { code: 'vb/not-logged-in' }); return auth.currentUser; };
+  const nameTaken = () => Object.assign(new Error('name taken'), { code: 'vb/name-taken' });
+  // Profile + name claim in one batch. The `names` rules allow create only, so if two people pick the
+  // same name at the same moment, the second batch is rejected and that person picks another name.
+  async function createProfile(u, name, level) {
+    const b = fs.batch();
+    b.set(fs.collection('players').doc(u.uid), { name, level, email: u.email || '', createdAt: TS() });
+    b.set(fs.collection('names').doc(nameKey(name)), { uid: u.uid, name });
+    try { await b.commit(); } catch (e) { if (/permission-denied/.test(String(e && e.code))) throw nameTaken(); throw e; }
+  }
+  // Accounts created before names were unique: claim their name once, so nobody else can register it.
+  async function claimName(uid, name) {
+    const flag = 'vb.nameClaimed.' + uid; if (!name || store.get(flag, false)) return;
+    try { const ref = fs.collection('names').doc(nameKey(name)); const sn = await ref.get(); if (!sn.exists) await ref.set({ uid, name }); store.set(flag, true); } catch (e) {}
+  }
   async function google(fn) {
     const provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
     try { await auth.signInWithPopup(provider); }
@@ -484,6 +500,7 @@ function firebaseBackend(conf) {
     async join({ sessionId, name }) {
       const u = me(); const ref = fs.collection('signups').doc(sessionId + '_' + u.uid);
       const existing = (d.signups || []).find(x => x.id === ref.id);
+      if (existing && existing.status === 'active') return ref.id; // already on the list: one entry per account
       if (existing && existing.status === 'left') await ref.update({ status: 'active', createdAt: TS(), name });
       else await ref.set({ sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' });
       return ref.id;
@@ -514,15 +531,20 @@ function firebaseBackend(conf) {
     // ---- accounts
     signInGoogle() { return google(); },
     async signInEmail(email, password) { await auth.signInWithEmailAndPassword(email, password); },
+    async isNameTaken(name) {
+      const sn = await fs.collection('names').doc(nameKey(name)).get(); const u = auth.currentUser;
+      return sn.exists && !(u && (sn.data() || {}).uid === u.uid);
+    },
     async register({ email, password, name, level }) {
+      if (await this.isNameTaken(name)) throw nameTaken();
       const r = await auth.createUserWithEmailAndPassword(email, password);
       try { await r.user.updateProfile({ displayName: name }); } catch (e) {}
-      await fs.collection('players').doc(r.user.uid).set({ name, level, email: r.user.email || email, createdAt: TS() });
+      await createProfile(r.user, name, level);
     },
     async saveProfile({ name, level }) {
-      const u = me();
-      if (d.profile) await fs.collection('players').doc(u.uid).update({ name });
-      else await fs.collection('players').doc(u.uid).set({ name, level, email: u.email || '', createdAt: TS() });
+      const u = me(); if (d.profile) return;
+      if (await this.isNameTaken(name)) throw nameTaken();
+      await createProfile(u, name, level);
     },
     resetPassword(email) { return auth.sendPasswordResetEmail(email); },
     signOut() { return auth.signOut(); }
@@ -533,10 +555,10 @@ function seedLocalDb() {
   const d = new Date(); const dow = d.getDay(); let add = (4 - dow + 7) % 7; if (add === 0) add = 7; d.setDate(d.getDate() + add);
   const date = localDateStr(d); const prev = new Date(d); prev.setDate(prev.getDate() - 7); const pdate = localDateStr(prev);
   const t0 = Date.now() - 20 * 3600e3; const tp = t0 - 7 * 24 * 3600e3; let n = 0; const nid = () => 'x' + (++n);
-  const db = { example: true, config: { title: 'Volleyball', currentSessionId: date }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, accounts: {}, pairs: { together: '', apart: '' } };
+  const db = { example: true, config: { title: 'Volleyball', currentSessionId: date }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, names: {}, accounts: {}, pairs: { together: '', apart: '' } };
   const names = ['Ana', 'Jonas', 'Mia', 'Luca', 'Elif', 'Tom', 'Sara', 'Niko', 'Lena', 'Paul', 'Omar', 'Julia', 'Felix', 'Nora', 'Emre', 'Lisa'];
   const levels = [4, 2, 5, 3, 3, 2, 4, 3, 2, 4, 5, 1, 3, 3, 2, 4];
-  names.forEach((name, i) => { db.players['demo-' + i] = { name, level: levels[i], email: name.toLowerCase() + '@example.com' }; });
+  names.forEach((name, i) => { db.players['demo-' + i] = { name, level: levels[i], email: name.toLowerCase() + '@example.com' }; db.names[name.toLowerCase()] = { uid: 'demo-' + i, name }; });
   const uidOf = name => 'demo-' + names.indexOf(name);
   const pnames = ['Mia', 'Ana', 'Niko', 'Luca', 'Sara', 'Jonas', 'Elif', 'Paul', 'Lena'];
   const patt = pnames.map((name, i) => ({ key: nid(), uid: uidOf(name), name, paid: i < 8, noshow: false, guestOf: '' }));
@@ -547,7 +569,7 @@ function seedLocalDb() {
   return db;
 }
 function localBackend() {
-  const KEY = 'vb.localdb'; let db = store.get(KEY, null); if (!db || !db.sessions || !db.players) db = seedLocalDb();
+  const KEY = 'vb.localdb'; let db = store.get(KEY, null); if (!db || !db.sessions || !db.players) db = seedLocalDb(); if (!db.names) db.names = {};
   let admin = !!store.get('vb.localAdmin', false); let session = store.get('vb.localSession', null);
   let cb = null; let seq = 0;
   const copy = o => JSON.parse(JSON.stringify(o));
@@ -570,6 +592,7 @@ function localBackend() {
     start(onChange) { cb = onChange; emit(); },
     async join({ sessionId, name }) {
       const uid = curUid(); const k = sessionId + '_' + uid; const ex = db.signups[k];
+      if (ex && ex.status === 'active') return k;
       if (ex && ex.status === 'left') Object.assign(ex, { status: 'active', createdAt: Date.now(), name });
       else if (!ex) db.signups[k] = { id: k, sessionId, name, uid, createdAt: Date.now(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' };
       else throw err('permission-denied', 'You can\'t rejoin after being removed.');
@@ -593,15 +616,17 @@ function localBackend() {
     async savePairs(p) { db.pairs = { together: p.together || '', apart: p.apart || '' }; emit(); },
     async signInGoogle() { login('you@gmail.com', 'google.com', 'You'); },
     async signInEmail(email, password) { const a = db.accounts[email]; if (!a || a.pw !== password) throw err('auth/invalid-credential', 'Wrong email or password.'); session = email; emit(); },
+    async isNameTaken(name) { const n = db.names[nameKey(name)]; const acc = session && db.accounts[session]; return !!n && !(acc && n.uid === acc.uid); },
     async register({ email, password, name, level }) {
       if (db.accounts[email]) throw err('auth/email-already-in-use', 'There is already an account with this email.');
-      db.accounts[email] = { uid: 'u' + randomHex(10), email, provider: 'password', name, pw: password }; db.players[db.accounts[email].uid] = { name, level, email }; session = email; emit();
+      if (db.names[nameKey(name)]) throw err('vb/name-taken', 'name taken');
+      const uid = 'u' + randomHex(10); db.accounts[email] = { uid, email, provider: 'password', name, pw: password }; db.players[uid] = { name, level, email }; db.names[nameKey(name)] = { uid, name }; session = email; emit();
     },
-    async saveProfile({ name, level }) { const uid = curUid(); if (db.players[uid]) db.players[uid].name = name; else db.players[uid] = { name, level, email: (db.accounts[session] || {}).email || '' }; emit(); },
+    async saveProfile({ name, level }) { const uid = curUid(); if (db.players[uid]) return; const n = db.names[nameKey(name)]; if (n && n.uid !== uid) throw err('vb/name-taken', 'name taken'); db.players[uid] = { name, level, email: (db.accounts[session] || {}).email || '' }; db.names[nameKey(name)] = { uid, name }; emit(); },
     async resetPassword() {},
     async openOrganizerDemo() { admin = true; store.set('vb.localAdmin', true); emit(); },
     async signOut() { session = null; admin = false; store.set('vb.localAdmin', false); emit(); },
-    async clearExamples() { db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, accounts: db.accounts || {}, pairs: { together: '', apart: '' } }; emit(); },
+    async clearExamples() { const keep = {}; Object.values(db.accounts || {}).forEach(a => { if (db.players[a.uid]) { keep[a.uid] = db.players[a.uid]; } }); const names = {}; Object.entries(db.names || {}).forEach(([k, v]) => { if (keep[v.uid]) names[k] = v; }); db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: keep, names, accounts: db.accounts || {}, pairs: { together: '', apart: '' } }; emit(); },
     async resetDemo() { db = seedLocalDb(); session = null; admin = false; store.set('vb.localAdmin', false); emit(); }
   };
 }
@@ -839,7 +864,7 @@ function authHTML() {
   const or = '<div class="or"><span>or</span></div>';
   const close = '<button type="button" class="link" data-act="auth-close">Back to the list</button>';
   let body;
-  if (m === 'register') body = '<h3>Create your account</h3><p class="muted small">One account to join every session. Your level helps the organizer make balanced teams; you set it once.</p>' + googleBtn + or +
+  if (m === 'register') body = '<h3>Create your account</h3><p class="muted small">One account per person, and one account to join every session. Names are unique in the group, so add a last name or initial if yours is common. Your level helps the organizer make balanced teams; you set it once.</p>' + googleBtn + or +
     '<div class="field"><label class="f" for="auName">Name (shown on the list)</label><input class="inp" id="auName" data-ui="auName" autocomplete="name" maxlength="60" value="' + esc(ui.auName) + '"></div>' +
     '<div class="field"><label class="f" for="auEmail">Email</label><input class="inp" id="auEmail" data-ui="auEmail" type="email" autocomplete="email" value="' + esc(ui.auEmail) + '"></div>' +
     '<div class="field"><label class="f" for="auPass">Password <span class="muted">(at least 6 characters)</span></label><input class="inp" id="auPass" data-ui="auPass" type="password" autocomplete="new-password" value="' + esc(ui.auPass) + '"></div>' +
@@ -1198,6 +1223,8 @@ const actions = {
     if (!S.vm.event || S.vm.played || !signupsOpen(S.vm.event) || ui.joining || S.vm.myKey) { render(); return; }
     const name = normName((S.data.profile && S.data.profile.name) || S.data.user.displayName || '').slice(0, 60);
     if (!name) { ui.joinErr = 'Your profile has no name yet.'; render(); return; }
+    const clash = S.vm.attendees.find(p => nameKey(p.name) === nameKey(name));
+    if (clash) { ui.joinErr = 'There is already a ' + clash.name + ' on the list. If that is you from another account, log in with that account instead; otherwise ask the organizer.'; render(); return; }
     ui.joining = true; render();
     await run(() => B.join({ sessionId: S.vm.eventId, name }), 'join');
     ui.joining = false; render();

@@ -16,7 +16,7 @@ service cloud.firestore {
       let s = sessionData(id);
       return s.status == 'open' && (s.get('opensAtTs', null) == null || request.time >= s.opensAtTs);
     }
-    function validName(n) { return n is string && n.size() > 0 && n.size() <= 60; }
+    function validName(n) { return n is string && n.size() > 0 && n.size() <= 60 && !n.matches('.*[/\\].*'); }
 
     // Organizer list: maintained by hand in the console. Each person may only check their own entry.
     match /admins/{adminEmail} {
@@ -34,8 +34,22 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Player profiles: created once by the player with a level of 1 to 5.
-    // Afterwards the player may only change their name; the level is the organizer's to change.
+    // Claimed display names, one per account: makes names unique across the group.
+    // Create-only, so two people cannot end up with the same name (the batch of the second one fails).
+    match /names/{key} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'name'])
+        && request.resource.data.uid == request.auth.uid
+        && validName(request.resource.data.name)
+        && key == request.resource.data.name.lower();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // Player profiles: created once by the player with a level of 1 to 5 (together with their name claim).
+    // Afterwards only the organizer changes level or name.
     match /players/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow create: if signedIn() && request.auth.uid == uid
@@ -44,12 +58,10 @@ service cloud.firestore {
         && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5
         && request.resource.data.email == email()
         && request.resource.data.createdAt == request.time;
-      allow update: if (isAdmin()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['level', 'name'])
-          && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5)
-        || (signedIn() && request.auth.uid == uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
-          && validName(request.resource.data.name));
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['level', 'name'])
+        && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5
+        && validName(request.resource.data.name);
       allow delete: if isAdmin();
     }
 
