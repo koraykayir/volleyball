@@ -265,25 +265,51 @@ function fmtTime(ts) {
 }
 function ago(ms) { const s = Math.max(0, Math.round(ms / 1000)); if (s < 5) return 'just now'; if (s < 60) return s + 's ago'; const m = Math.round(s / 60); if (m < 60) return m + ' min ago'; return Math.round(m / 60) + ' h ago'; }
 
-/* ---- CSV ---- */
+/* ---- capacity and courts ----
+   A session has a roster count (how many play) and a bench count (how many may wait). The courts
+   (2v2 / 3v3 / 4v4 / 5v5) are chosen when the organizer generates the roster and are stored with it.
+   Sessions from before v13 stored courts instead of a roster count; they still work. */
+const FORMATS = ['2v2', '3v3', '4v4', '5v5'];
+const perSide = f => { const n = parseInt(f, 10); return n >= 2 && n <= 5 ? n : 4; };
+const courtSize = f => 2 * perSide(f);
 function courtList(ev) {
   if (!ev) return [];
-  if (Array.isArray(ev.courtsList) && ev.courtsList.length) return ev.courtsList.map(f => f === '3v3' ? '3v3' : '4v4');
+  if (Array.isArray(ev.courtsList) && ev.courtsList.length) return ev.courtsList.map(f => FORMATS.includes(f) ? f : '4v4');
   const n = Math.max(0, parseInt(ev.courts, 10) || 0); return Array(n).fill(ev.format === '3v3' ? '3v3' : '4v4');
 }
-function capacityOf(ev) { return courtList(ev).reduce((s, f) => s + (f === '3v3' ? 6 : 8), 0); }
-function teamCaps(ev) { const caps = []; courtList(ev).forEach(f => { const n = f === '3v3' ? 3 : 4; caps.push(n, n); }); return caps; }
-function courtSummary(ev) {
-  const l = courtList(ev); if (!l.length) return '';
-  const n4 = l.filter(f => f === '4v4').length, n3 = l.length - n4; const parts = [];
-  if (n4) parts.push((n4 > 1 ? n4 + '× ' : '') + '4v4'); if (n3) parts.push((n3 > 1 ? n3 + '× ' : '') + '3v3');
+function capacityOf(ev) { if (!ev) return 0; const c = parseInt(ev.capacity, 10); if (c > 0) return c; return courtList(ev).reduce((t, f) => t + courtSize(f), 0); }
+function benchCapOf(ev) { if (!ev || ev.benchCap == null || ev.benchCap === '') return null; const b = parseInt(ev.benchCap, 10); return b >= 0 ? b : null; }
+function teamCaps(courts) { const caps = []; (courts || []).forEach(f => { const n = perSide(f); caps.push(n, n); }); return caps; }
+function courtsLabel(courts) {
+  const l = courts || []; if (!l.length) return '';
+  const parts = FORMATS.filter(f => l.includes(f)).map(f => { const n = l.filter(x => x === f).length; return (n > 1 ? n + '× ' : '') + f; });
   return l.length + ' court' + (l.length > 1 ? 's' : '') + ' · ' + parts.join(' + ');
+}
+function courtSummary(ev) {
+  if (!ev) return '';
+  if (!(parseInt(ev.capacity, 10) > 0) && courtList(ev).length) return courtsLabel(courtList(ev));
+  const cap = capacityOf(ev); if (!cap) return ''; const b = benchCapOf(ev);
+  return cap + ' spots' + (b == null ? '' : ' · bench ' + b);
+}
+function rosterCourtsOf(r) { return r && Array.isArray(r.c) && r.c.length ? r.c.map(f => FORMATS.includes(f) ? f : '4v4') : null; }
+function countsOf(list) { const o = {}; FORMATS.forEach(f => { o[f] = 0; }); (list || []).forEach(f => { if (o[f] != null) o[f]++; }); return o; }
+function listOf(counts) { const l = []; FORMATS.forEach(f => { for (let i = 0; i < ((counts && counts[f]) || 0); i++) l.push(f); }); return l; }
+// A default court set for a roster of `cap` players: fewest courts, then as few 2v2 as possible, then 4v4 before 3v3.
+function suggestCourts(cap) {
+  if (!cap || cap % 2) return []; let best = null;
+  for (let n5 = 0; n5 * 10 <= cap; n5++) for (let n4 = 0; n5 * 10 + n4 * 8 <= cap; n4++) for (let n3 = 0; n5 * 10 + n4 * 8 + n3 * 6 <= cap; n3++) {
+    const rest = cap - n5 * 10 - n4 * 8 - n3 * 6; if (rest % 4) continue; const n2 = rest / 4;
+    const c = { n: n5 + n4 + n3 + n2, n2, n4, n3, n5 };
+    if (!best || c.n < best.n || (c.n === best.n && (c.n2 < best.n2 || (c.n2 === best.n2 && (c.n4 > best.n4 || (c.n4 === best.n4 && c.n3 > best.n3)))))) best = c;
+  }
+  return best ? listOf({ '2v2': best.n2, '3v3': best.n3, '4v4': best.n4, '5v5': best.n5 }) : [];
 }
 /* ================= data model =================
    Firestore layout (same shape in demo mode):
    config/app            { title, organizer, pageUrl, currentSessionId }
-   sessions/{id}         { date, time, place, courts, format, courtsList, price, note, opensAt, opensAtTs, startsAtTs, duration,
-                           status: 'open'|'played', playedAt, roster: {t, b}|null, summary: {attendees}|null, createdAt }
+   sessions/{id}         { date, time, place, capacity, benchCap|null, price, note, opensAt, opensAtTs, startsAtTs, duration,
+                           status: 'open'|'played', playedAt, roster: {t, b, c}|null, summary: {attendees}|null, createdAt }
+                           (before v13: courts, format, courtsList instead of capacity; roster without c)
    signups/{auto}        { sessionId, name, uid, createdAt, status: 'active'|'leaving'|'left'|'removed', paid, noshow, guestOf, addedBy: 'self'|'organizer',
                            leaveRequestedAt, leaveDeclinedAt, leftAt }      'leaving' = asked to leave, waiting for an organizer
    log/{auto}            { sessionId, at, type, name, uid, key, detail, by, byName }   every join, leave and change; organizers read
@@ -291,7 +317,7 @@ function courtSummary(ev) {
    ratings/{nameLower}   { name, r }  ratings/_pairs { together, apart }   organizers only
    admins/{email}        added by hand in the Firebase console */
 function emptyData(mode) { return { mode, clockOffset: 0, clockSynced: false, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false, log: null, logLoaded: false }; }
-function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, startsAtMs: s.startsAtMs || 0, duration: s.duration || 120 }; }
+function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, startsAtMs: s.startsAtMs || 0, duration: s.duration || 120, capacity: s.capacity == null ? null : s.capacity, benchCap: s.benchCap == null ? null : s.benchCap }; }
 // Current time as the server sees it (offset measured against Firestore once logged in; device clock otherwise).
 function now() { return Date.now() + ((S.data && S.data.clockOffset) || 0); }
 // Order is decided by the server clock: Firestore stamps each sign-up on arrival (rules reject any other time).
@@ -320,7 +346,8 @@ function buildVM(d) {
   st.attendees = sign.map(x => st.people.get(x.id)).filter(p => p.active);
   const mine = uid ? st.attendees.find(p => p.uid === uid && !p.guestOf && p.addedBy !== 'organizer') : null;
   st.myKey = mine ? mine.key : null;
-  st.capacity = capacityOf(st.event);
+  st.capacity = capacityOf(st.event); st.benchCap = benchCapOf(st.event);
+  st.listFull = st.benchCap != null && st.attendees.length >= st.capacity + st.benchCap;
   st.playing = st.capacity ? st.attendees.slice(0, st.capacity) : st.attendees.slice();
   st.bench = st.capacity ? st.attendees.slice(st.capacity) : [];
   st.history = sessions.filter(s => s.id !== curId).map(s => ({ id: s.id, event: sessionEvent(s), attendees: s.summary && Array.isArray(s.summary.attendees) ? s.summary.attendees : [], roster: s.roster && Array.isArray(s.roster.t) ? s.roster : null, played: s.status === 'played', doneTs: s.playedAt ? new Date(s.playedAt).toISOString() : '' }));
@@ -339,7 +366,7 @@ const S = {
     authOpen: false, authMode: 'login', authErr: '', authInfo: '', authBusy: false, auName: '', auEmail: '', auPass: '', auLevel: 0, pfName: null, pfLevel: 0,
     addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false,
     ev: null, evDirty: false,
-    roster: { mode: 'closed', sel: null, id: null }, ratingsOpen: false,
+    roster: { mode: 'closed', sel: null, id: null, rc: null }, ratingsOpen: false,
     setupOpen: false, suTitle: '', suOrganizer: '', suPageUrl: '', suSaved: false,
     logOpen: false, lgSession: 'all', lgType: 'all', lgQ: ''
   }
@@ -370,47 +397,9 @@ function parsePairs(ctx) {
   const parse = txt => String(txt || '').split(',').map(x => x.split(/\s*[+\/&]\s*/).map(n => n.trim().toLowerCase()).filter(Boolean)).filter(a => a.length === 2 && names.has(a[0]) && names.has(a[1]) && a[0] !== a[1]);
   return { together: parse(S.pairs.together), apart: parse(S.pairs.apart) };
 }
-function balanceTeams(ctx) {
-  const caps = teamCaps(ctx.ev); if (!caps.length) return [];
-  const cap = caps.reduce((a, b) => a + b, 0); const pool = ctx.attendees.filter(p => p.paid).slice(0, cap);
-  const { together, apart } = parsePairs(ctx); const lc = p => p.name.toLowerCase();
-  const isApart = (a, b) => apart.some(([x, y]) => (x === lc(a) && y === lc(b)) || (y === lc(a) && x === lc(b)));
-  const isTogether = (a, b) => together.some(([x, y]) => (x === lc(a) && y === lc(b)) || (y === lc(a) && x === lc(b)));
-  const used = new Set(); const units = [];
-  together.forEach(([a, b]) => { const pa = pool.find(p => lc(p) === a), pb = pool.find(p => lc(p) === b); if (pa && pb && !used.has(pa.key) && !used.has(pb.key)) { units.push([pa, pb]); used.add(pa.key); used.add(pb.key); } });
-  pool.forEach(p => { if (!used.has(p.key)) units.push([p]); });
-  const usum = u => u.reduce((t, p) => t + ratingOf(p.name), 0);
-  units.sort((u, v) => usum(v) / v.length - usum(u) / u.length || v.length - u.length);
-  const teams = caps.map(() => []);
-  const avg = i => teams[i].length ? teams[i].reduce((t, p) => t + ratingOf(p.n), 0) / teams[i].length : 0;
-  const conflict = (i, unit) => unit.some(p => teams[i].some(q => isApart(p, { name: q.n })));
-  units.forEach(unit => {
-    let best = -1, bestScore = Infinity;
-    const pick = allow => caps.forEach((c, i) => { if (teams[i].length + unit.length > c) return; if (!allow && conflict(i, unit)) return; const score = avg(i) + (teams[i].length / c) * 0.001; if (score < bestScore) { bestScore = score; best = i; } });
-    pick(false); if (best < 0) pick(true); if (best < 0) return;
-    unit.forEach(p => teams[best].push({ k: p.key, n: p.name }));
-  });
-  const spread = () => { const as = teams.map((t, i) => avg(i)); const m = as.reduce((a, b) => a + b, 0) / (as.length || 1); return as.reduce((t, a) => t + (a - m) * (a - m), 0); };
-  const okAfter = (i, j) => !teams[i].some(p => teams[i].some(q => p !== q && isApart({ name: p.n }, { name: q.n }))) && !teams[j].some(p => teams[j].some(q => p !== q && isApart({ name: p.n }, { name: q.n })));
-  const glued = (i, idx) => teams[i].some((q, k) => k !== idx && isTogether({ name: teams[i][idx].n }, { name: q.n }));
-  for (let iter = 0; iter < 30; iter++) {
-    let bestGain = 1e-6, bi = -1, bj = -1, ba = -1, bb = -1; const base = spread();
-    for (let i = 0; i < teams.length; i++) for (let j = i + 1; j < teams.length; j++) for (let a = 0; a < teams[i].length; a++) for (let b = 0; b < teams[j].length; b++) {
-      if (glued(i, a) || glued(j, b)) continue;
-      [teams[i][a], teams[j][b]] = [teams[j][b], teams[i][a]];
-      const gain = okAfter(i, j) ? base - spread() : -1;
-      [teams[i][a], teams[j][b]] = [teams[j][b], teams[i][a]];
-      if (gain > bestGain) { bestGain = gain; bi = i; bj = j; ba = a; bb = b; }
-    }
-    if (bi < 0) break;
-    [teams[bi][ba], teams[bj][bb]] = [teams[bj][bb], teams[bi][ba]];
-  }
-  return teams;
-}
-
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v13';
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
@@ -645,16 +634,16 @@ function seedLocalDb() {
   const uidOf = name => 'demo-' + names.indexOf(name);
   const pnames = ['Mia', 'Ana', 'Niko', 'Luca', 'Sara', 'Jonas', 'Elif', 'Paul', 'Lena'];
   const patt = pnames.map((name, i) => ({ key: nid(), uid: uidOf(name), name, paid: i < 8, noshow: false, guestOf: '' }));
-  db.sessions[pdate] = { id: pdate, date: pdate, time: '19:00', place: 'Sporthalle', courts: 1, format: '4v4', courtsList: ['4v4'], price: '8 €', note: '', opensAt: '', duration: 120, status: 'played', playedAt: tp + 30 * 3600e3, roster: { t: [['Mia', 'Luca', 'Elif', 'Paul'], ['Ana', 'Niko', 'Sara', 'Jonas']], b: ['Lena'] }, summary: { attendees: patt }, createdAt: tp - 3600e3 };
-  db.sessions[date] = { id: date, date, time: '19:00', place: 'Sporthalle', courts: 2, format: 'mixed', courtsList: ['4v4', '3v3'], price: '8 €', note: '', opensAt: '', duration: 120, status: 'open', playedAt: null, roster: null, summary: null, createdAt: t0 - 3600e3 };
+  db.sessions[pdate] = { id: pdate, date: pdate, time: '19:00', place: 'Sporthalle', capacity: 8, benchCap: 2, price: '8 €', note: '', opensAt: '', duration: 120, status: 'played', playedAt: tp + 30 * 3600e3, roster: { t: [['Mia', 'Luca', 'Elif', 'Paul'], ['Ana', 'Niko', 'Sara', 'Jonas']], b: ['Lena'], c: ['4v4'] }, summary: { attendees: patt }, createdAt: tp - 3600e3 };
+  db.sessions[date] = { id: date, date, time: '19:00', place: 'Sporthalle', capacity: 14, benchCap: 4, price: '8 €', note: '', opensAt: '', duration: 120, status: 'open', playedAt: null, roster: null, summary: null, createdAt: t0 - 3600e3 };
   const paid = ['Ana', 'Mia', 'Elif', 'Jonas', 'Luca', 'Sara', 'Omar', 'Julia'];
   names.forEach((name, i) => { const k = date + '_demo-' + i; db.signups[k] = { id: k, sessionId: date, name, uid: 'demo-' + i, createdAt: t0 + i * 7 * 60e3, status: name === 'Tom' ? 'left' : 'active', paid: paid.includes(name), noshow: false, guestOf: '', addedBy: 'self' }; });
   // example activity: the previous session being played, every join of this one, Tom leaving, payments ticked
   const L = []; const put = e => L.push(e);
-  put({ at: tp - 3600e3, sessionId: pdate, type: 'session-create', by: 'demo-organizer', byName: 'Organizer', detail: 'Thu ' + pdate + ' 19:00 · 1 court' });
+  put({ at: tp - 3600e3, sessionId: pdate, type: 'session-create', by: 'demo-organizer', byName: 'Organizer', detail: 'Thu ' + pdate + ' 19:00 · 8 spots · bench 2' });
   pnames.forEach((name, i) => put({ at: tp - 3000e3 + i * 5 * 60e3, sessionId: pdate, type: 'join', name, uid: uidOf(name), by: uidOf(name), byName: name }));
   put({ at: tp + 30 * 3600e3, sessionId: pdate, type: 'played', by: 'demo-organizer', byName: 'Organizer', detail: 'no no-shows' });
-  put({ at: t0 - 3600e3, sessionId: date, type: 'session-create', by: 'demo-organizer', byName: 'Organizer', detail: 'Thu ' + date + ' 19:00 · 2 courts' });
+  put({ at: t0 - 3600e3, sessionId: date, type: 'session-create', by: 'demo-organizer', byName: 'Organizer', detail: 'Thu ' + date + ' 19:00 · 14 spots · bench 4' });
   names.forEach((name, i) => put({ at: t0 + i * 7 * 60e3, sessionId: date, type: 'join', name, uid: uidOf(name), by: uidOf(name), byName: name, key: date + '_demo-' + i }));
   put({ at: t0 + 130 * 60e3, sessionId: date, type: 'leave-request', name: 'Tom', uid: uidOf('Tom'), by: uidOf('Tom'), byName: 'Tom', key: date + '_demo-5' });
   put({ at: t0 + 150 * 60e3, sessionId: date, type: 'leave-approved', name: 'Tom', uid: uidOf('Tom'), by: 'demo-organizer', byName: 'Organizer', key: date + '_demo-5' });
@@ -785,11 +774,11 @@ function ctxFor(id) {
 }
 function activeCtx() { return ctxFor(U().roster.id); }
 /* ---- roster generation ----
-   1. Familiarity: for every past session with saved teams, two players who were on the same court
-      (same team or opponents) get +1. 2. Courts: players are placed so that the familiarity inside
-      each court is as high as possible (hill climbing with restarts). 3. Teams: each court is split
-      into two teams whose average levels are as close as possible (exhaustive, a court has at most 8).
-   Keep-together pairs share a team, keep-apart pairs never do (when possible). */
+   1. Courts are grouped by size; the smallest courts get the strongest players (by rating), the next
+      size the next strongest, and so on. 2. Among courts of the same size, players who often shared a
+      court before are kept together (familiarity from past sessions with saved teams, hill climbing with
+      restarts). 3. Each court is split into two teams whose average levels are as close as possible
+      (exhaustive, a court has at most 10). Keep-together pairs share a team, keep-apart pairs never do (when possible). */
 function familiarity(ctx) {
   const F = new Map(); let sessions = 0;
   const add = (a, b) => { if (a === b) return; const k = a < b ? a + '|' + b : b + '|' + a; F.set(k, (F.get(k) || 0) + 1); };
@@ -803,13 +792,14 @@ function familiarity(ctx) {
   });
   return { get: (a, b) => F.get(a < b ? a + '|' + b : b + '|' + a) || 0, sessions };
 }
-function generateTeams(ctx) {
-  const caps = teamCaps(ctx.ev); if (!caps.length) return [];
+function generateTeams(ctx, courtsIn) {
+  const courts = (courtsIn && courtsIn.length ? courtsIn : rosterCourtsFor(ctx)).slice();
+  const caps = teamCaps(courts); if (!caps.length) return [];
   const total = caps.reduce((a, b) => a + b, 0);
   const pool = ctx.attendees.filter(p => p.paid).slice(0, total);
   if (!pool.length) return caps.map(() => []);
-  const nC = caps.length / 2; const lc = p => p.name.toLowerCase();
-  // how many players each team gets (fill evenly by capacity, as before)
+  const nC = courts.length; const lc = p => p.name.toLowerCase();
+  // players per team: fill evenly by capacity when fewer than `total` have paid
   const tCount = caps.map(() => 0);
   pool.forEach(() => { let best = 0, r = Infinity; caps.forEach((c, i) => { const q = tCount[i] / c; if (q < r - 1e-9) { r = q; best = i; } }); tCount[best]++; });
   const cCount = Array.from({ length: nC }, (_, c) => tCount[2 * c] + tCount[2 * c + 1]);
@@ -820,30 +810,43 @@ function generateTeams(ctx) {
   const used = new Set(); const units = [];
   together.forEach(([a, b]) => { const pa = pool.find(p => lc(p) === a), pb = pool.find(p => lc(p) === b); if (pa && pb && !used.has(pa.key) && !used.has(pb.key)) { units.push([pa, pb]); used.add(pa.key); used.add(pb.key); } });
   pool.forEach(p => { if (!used.has(p.key)) units.push([p]); });
-  // step 1: courts
-  let courts;
-  if (nC === 1) courts = [pool.slice()];
-  else {
-    const score = cs => cs.reduce((s, court) => { let v = 0; for (let i = 0; i < court.length; i++) for (let j = i + 1; j < court.length; j++) v += fam.get(lc(court[i]), lc(court[j])); return s + v; }, 0);
+  const unitOf = p => units.find(u => u.includes(p)); const urate = u => u.reduce((t, p) => t + ratingOf(p.name), 0) / u.length;
+  // step 1: tiers. Courts grouped by size, smallest first; the strongest units fill the smallest tier first.
+  const size = c => caps[2 * c] + caps[2 * c + 1];
+  const tiers = [];
+  Array.from({ length: nC }, (_, c) => c).sort((a, b) => size(a) - size(b) || a - b).forEach(c => { const t = tiers.find(x => x.size === size(c)); if (t) t.courts.push(c); else tiers.push({ size: size(c), courts: [c] }); });
+  const cs = Array.from({ length: nC }, () => []);
+  const score = tc => tc.reduce((t, c) => { const court = cs[c]; let v = 0; for (let i = 0; i < court.length; i++) for (let j = i + 1; j < court.length; j++) v += fam.get(lc(court[i]), lc(court[j])); return t + v; }, 0);
+  const placeInTier = (tc, tunits) => {
+    if (tc.length === 1) { tunits.forEach(u => u.forEach(p => cs[tc[0]].push(p))); return; }
+    // several courts of the same size: people who often played together share a court
     let best = null, bestScore = -1;
     for (let restart = 0; restart < 25; restart++) {
-      const cs = Array.from({ length: nC }, () => []); const room = cCount.slice();
-      for (const u of shuffle(units)) { let c = -1, most = -1; room.forEach((r, i) => { if (r >= u.length && r > most) { most = r; c = i; } }); if (c < 0) c = room.indexOf(Math.max(...room)); u.forEach(p => cs[c].push(p)); room[c] -= u.length; }
-      let cur = score(cs); let improved = true;
-      const unitOf = p => units.find(u => u.includes(p));
+      const room = {}; tc.forEach(c => { cs[c] = []; room[c] = cCount[c]; });
+      for (const u of shuffle(tunits)) { let c = -1, most = -1; tc.forEach(x => { if (room[x] >= u.length && room[x] > most) { most = room[x]; c = x; } }); if (c < 0) c = tc.reduce((a, b) => room[a] >= room[b] ? a : b); u.forEach(p => cs[c].push(p)); room[c] -= u.length; }
+      let cur = score(tc); let improved = true;
       while (improved) {
         improved = false;
-        for (let a = 0; a < nC && !improved; a++) for (let b = a + 1; b < nC && !improved; b++) for (const pa of cs[a]) { if (unitOf(pa).length > 1) continue; for (const pb of cs[b]) { if (unitOf(pb).length > 1) continue;
-          const ia = cs[a].indexOf(pa), ib = cs[b].indexOf(pb); cs[a][ia] = pb; cs[b][ib] = pa; const s2 = score(cs);
-          if (s2 > cur) { cur = s2; improved = true; break; } cs[a][ia] = pa; cs[b][ib] = pb; } if (improved) break; }
+        for (let i = 0; i < tc.length && !improved; i++) for (let j = i + 1; j < tc.length && !improved; j++) { const a = tc[i], b = tc[j];
+          for (const pa of cs[a]) { if (unitOf(pa).length > 1) continue; for (const pb of cs[b]) { if (unitOf(pb).length > 1) continue;
+            const ia = cs[a].indexOf(pa), ib = cs[b].indexOf(pb); cs[a][ia] = pb; cs[b][ib] = pa; const s2 = score(tc);
+            if (s2 > cur) { cur = s2; improved = true; break; } cs[a][ia] = pa; cs[b][ib] = pb; } if (improved) break; } }
       }
-      if (cur > bestScore) { bestScore = cur; best = cs.map(c => c.slice()); }
+      if (cur > bestScore) { bestScore = cur; best = {}; tc.forEach(c => { best[c] = cs[c].slice(); }); }
     }
-    courts = best;
-  }
+    tc.forEach(c => { cs[c] = best[c]; });
+  };
+  let left = units.slice().sort((a, b) => urate(b) - urate(a) || pool.indexOf(a[0]) - pool.indexOf(b[0]));
+  tiers.forEach(t => {
+    let room = t.courts.reduce((n, c) => n + cCount[c], 0); const mine = [], rest = [];
+    left.forEach(u => { if (u.length <= room) { mine.push(u); room -= u.length; } else rest.push(u); });
+    left = rest; placeInTier(t.courts, mine);
+  });
+  // a pair that fit nowhere as a pair is split over the courts with room
+  left.forEach(u => u.forEach(p => { let c = 0; for (let i = 1; i < nC; i++) if (cCount[i] - cs[i].length > cCount[c] - cs[c].length) c = i; cs[c].push(p); }));
   // step 2: split each court into two teams with the closest average level
   const teams = caps.map(() => []);
-  courts.forEach((court, c) => {
+  cs.forEach((court, c) => {
     const nA = Math.min(tCount[2 * c], court.length); const n = court.length; let best = null, bestCost = Infinity;
     const lvl = court.map(p => ratingOf(p.name));
     for (let mask = 0; mask < (1 << n); mask++) {
@@ -863,29 +866,41 @@ function teamsFromNames(ctx, t) {
   const byName = new Map(); ctx.attendees.forEach(p => byName.set(p.name.toLowerCase(), p.key));
   return (Array.isArray(t) ? t : []).map(team => (Array.isArray(team) ? team : []).map(n => ({ k: byName.get(String(n).toLowerCase()) || keyOf(n, ''), n: String(n) })));
 }
-function draftFor(ctx) { return ctx && S.drafts[ctx.id] ? S.drafts[ctx.id] : null; }
-function setDraft(ctx, teams) { S.drafts[ctx.id] = teams; store.set('vb.drafts', S.drafts); }
+function draftRec(ctx) {
+  if (!ctx) return null; let d = S.drafts[ctx.id]; if (!d) return null;
+  if (Array.isArray(d)) { d = { t: d, c: rosterCourtsOf(ctx.roster) || courtList(ctx.ev) }; S.drafts[ctx.id] = d; }
+  return d;
+}
+function draftFor(ctx) { const d = draftRec(ctx); return d ? d.t : null; }
+function setDraft(ctx, teams, courts) { const prev = draftRec(ctx); S.drafts[ctx.id] = { t: teams, c: courts || (prev && prev.c) || rosterCourtsFor(ctx) }; store.set('vb.drafts', S.drafts); }
+// The courts a roster is (being) made for: the draft's, else the saved roster's, else the old-style session courts.
+function rosterCourtsFor(ctx) { const d = draftRec(ctx); if (d && Array.isArray(d.c) && d.c.length) return d.c; return rosterCourtsOf(ctx && ctx.roster) || courtList(ctx && ctx.ev); }
+function lastCourts() { const h = S.vm.history; for (let i = h.length - 1; i >= 0; i--) { const c = rosterCourtsOf(h[i].roster); if (c) return c; } return null; }
 function openRoster(id) {
   const ctx = ctxFor(id); if (!ctx) return;
-  if (!draftFor(ctx)) setDraft(ctx, ctx.roster && Array.isArray(ctx.roster.t) ? teamsFromNames(ctx, ctx.roster.t) : generateTeams(ctx));
-  U().roster = { mode: 'edit', sel: null, id: ctx.current ? null : ctx.id };
+  const r = U().roster; r.id = ctx.current ? null : ctx.id; r.sel = null;
+  if (draftFor(ctx)) { r.mode = 'edit'; return; }
+  if (ctx.roster && Array.isArray(ctx.roster.t)) { setDraft(ctx, teamsFromNames(ctx, ctx.roster.t), rosterCourtsOf(ctx.roster) || courtList(ctx.ev)); r.mode = 'edit'; return; }
+  // a new roster: first ask which courts to use
+  const cap = capacityOf(ctx.ev); const prev = courtList(ctx.ev).length ? courtList(ctx.ev) : lastCourts();
+  r.rc = countsOf(prev && prev.reduce((t, f) => t + courtSize(f), 0) === cap ? prev : suggestCourts(cap)); r.mode = 'courts';
 }
 function rosterPayload(ctx, teams) {
   const placed = new Set(); teams.forEach(t => t.forEach(p => placed.add(p.k)));
-  return { id: ctx.id, t: teams.map(t => t.map(p => p.n)), b: ctx.attendees.filter(p => !placed.has(p.key)).map(p => p.name) };
+  return { id: ctx.id, t: teams.map(t => t.map(p => p.n)), b: ctx.attendees.filter(p => !placed.has(p.key)).map(p => p.name), c: rosterCourtsFor(ctx) };
 }
-function rosterSaved(ctx, teams) { const cur = ctx.roster; if (!cur) return false; const p = rosterPayload(ctx, teams); return JSON.stringify(cur.t) === JSON.stringify(p.t) && JSON.stringify(cur.b || []) === JSON.stringify(p.b); }
+function rosterSaved(ctx, teams) { const cur = ctx.roster; if (!cur) return false; const p = rosterPayload(ctx, teams); return JSON.stringify(cur.t) === JSON.stringify(p.t) && JSON.stringify(cur.b || []) === JSON.stringify(p.b) && JSON.stringify(rosterCourtsOf(cur) || courtList(ctx.ev)) === JSON.stringify(p.c); }
 async function ensureRosterSaved(ctx) {
   const teams = draftFor(ctx); if (!ctx || !teams || !teams.some(t => t.length)) return false;
   if (rosterSaved(ctx, teams)) return false;
-  const p = rosterPayload(ctx, teams); const ok = await run(() => B.updateSession(ctx.id, { roster: { t: p.t, b: p.b } }, { type: 'roster', sessionId: ctx.id }).then(() => true), 'org'); return !!ok;
+  const p = rosterPayload(ctx, teams); const ok = await run(() => B.updateSession(ctx.id, { roster: { t: p.t, b: p.b, c: p.c } }, { type: 'roster', sessionId: ctx.id, detail: courtsLabel(p.c) }).then(() => true), 'org'); return !!ok;
 }
-function rosterData(ctx, teams, benchNames) {
-  const ev = ctx.ev || {}; const courts = []; const cl = courtList(ev);
+function rosterData(ctx, teams, benchNames, courtsIn) {
+  const ev = ctx.ev || {}; const courts = []; const cl = courtsIn || rosterCourtsFor(ctx);
   for (let c = 0; c < teams.length; c += 2) courts.push({ a: (teams[c] || []).map(x => x.n), b: (teams[c + 1] || []).map(x => x.n), format: cl[c / 2] || '' });
   return { title: S.cfg.title || 'Volleyball', dateLine: fmtEventLong(ev) + (ev.time ? ' · ' + ev.time : ''), place: ev.place || '', courts, bench: benchNames, organizer: S.cfg.organizer || '', note: ev.note || '' };
 }
-function activeRosterData() { const ctx = activeCtx(); const teams = draftFor(ctx); if (!ctx || !teams) return null; return rosterData(ctx, teams, rosterPayload(ctx, teams).b); }
+function activeRosterData() { const ctx = activeCtx(); const teams = draftFor(ctx); if (!ctx || !teams) return null; return rosterData(ctx, teams, rosterPayload(ctx, teams).b, rosterCourtsFor(ctx)); }
 function rosterText(d) {
   const L = []; L.push('🏐 ' + d.title + ' · ' + d.dateLine); if (d.place) L.push('📍 ' + d.place); L.push('');
   d.courts.forEach((c, i) => { L.push('Court ' + (i + 1) + (c.format ? ' (' + c.format + ')' : '')); L.push('A: ' + c.a.join(', ')); L.push('B: ' + c.b.join(', ')); L.push(''); });
@@ -960,8 +975,8 @@ function bandHTML(vm) {
   if (!ev && vm.loading) return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + '</div><div class="ev-title">Loading…</div><div class="ev-meta">Getting the latest list.</div></div></header>';
   if (!ev) return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + '</div><div class="ev-title">No session scheduled yet</div><div class="ev-meta">The organizer will post the next date here.</div></div></header>';
   const taken = Math.min(vm.attendees.length, vm.capacity); const pct = vm.capacity ? Math.round(100 * taken / vm.capacity) : 0;
-  return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + (vm.played ? '<span class="tag">Played</span>' : '') + '</div><div class="ev-title">' + esc(fmtEventLong(ev)) + '</div><div class="ev-meta">' + esc([ev.time, ev.place, courtSummary(ev)].filter(Boolean).join(' · ')) + '</div>' +
-    '<div class="score"><div class="spots">' + taken + '<small> / ' + vm.capacity + '</small></div><div class="lbl">' + (vm.played ? 'played' : 'spots taken') + (vm.bench.length ? '<br>+' + vm.bench.length + ' on the bench' : '') + '</div></div>' +
+  return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + (vm.played ? '<span class="tag">Played</span>' : '') + '</div><div class="ev-title">' + esc(fmtEventLong(ev)) + '</div><div class="ev-meta">' + esc([ev.time, ev.place, vm.roster && rosterCourtsOf(vm.roster) ? courtsLabel(rosterCourtsOf(vm.roster)) : (parseInt(ev.capacity, 10) > 0 ? '' : courtSummary(ev))].filter(Boolean).join(' · ')) + '</div>' +
+    '<div class="score"><div class="spots">' + taken + '<small> / ' + vm.capacity + '</small></div><div class="lbl">' + (vm.played ? 'played' : 'spots taken') + (vm.bench.length ? '<br>+' + vm.bench.length + (vm.benchCap != null ? ' of ' + vm.benchCap : '') + ' on the bench' : '') + '</div></div>' +
     '<div class="bar"><i style="width:' + pct + '%"></i></div></div></header>';
 }
 const LEVELS = [[1, 'Beginner', 'Learning the basics'], [2, 'Casual', 'Can keep a rally going'], [3, 'Intermediate', 'Solid pass, set and serve'], [4, 'Advanced', 'Attacks and plays positions'], [5, 'Strong', 'Club level']];
@@ -1051,11 +1066,11 @@ function examplesHTML() {
   return '<div class="note warn banner"><span>Example data, so you can try the page. Everything here is editable.</span><button class="btn xs ghost" type="button" data-act="clear-examples">Clear examples</button></div>';
 }
 function mailtoHref(emails, subject, body) { return 'mailto:?bcc=' + emails.map(encodeURIComponent).join(',') + '&subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body); }
-function courtsHTML(teams, opts, ctx) {
-  const o = opts || {}; const ev = ctx.ev; const caps = teamCaps(ev); const cl = courtList(ev); const out = [];
+function courtsHTML(teams, opts, ctx, courtsIn) {
+  const o = opts || {}; const cl = courtsIn || rosterCourtsFor(ctx); const caps = teamCaps(cl); const out = [];
   for (let c = 0; c < teams.length; c += 2) {
     const t = i => {
-      const team = teams[i] || []; const label = i % 2 === 0 ? 'Team A' : 'Team B'; const target = caps[i] || (cl[c / 2] === '3v3' ? 3 : 4);
+      const team = teams[i] || []; const label = i % 2 === 0 ? 'Team A' : 'Team B'; const target = caps[i] || perSide(cl[c / 2] || '4v4');
       const chips = team.map((p, idx) => {
         const person = ctx.people.get(p.k); const unpaid = !person || !person.paid; const sel = o.edit && o.sel && o.sel.t === i && o.sel.i === idx;
         if (!o.edit) return '<span class="chip static' + (unpaid && o.flag ? ' unpaid' : '') + '">' + esc(p.n) + '</span>';
@@ -1071,9 +1086,9 @@ function courtsHTML(teams, opts, ctx) {
 }
 function finalRosterHTML(vm) {
   const r = vm.roster; const ctx = ctxFor(null); if (!ctx || !r || !Array.isArray(r.t)) return '';
-  const teams = teamsFromNames(ctx, r.t);
-  const data = rosterData(ctx, teams, Array.isArray(r.b) ? r.b : []);
-  return '<section><h2 class="sec">Final roster</h2><div class="stack">' + courtsHTML(teams, { edit: false, flag: false }, ctx) +
+  const teams = teamsFromNames(ctx, r.t); const courts = rosterCourtsOf(r) || courtList(ctx.ev);
+  const data = rosterData(ctx, teams, Array.isArray(r.b) ? r.b : [], courts);
+  return '<section><h2 class="sec">Final roster <span class="cnt">' + esc(courtsLabel(courts)) + '</span></h2><div class="stack">' + courtsHTML(teams, { edit: false, flag: false }, ctx, courts) +
     (r.b && r.b.length ? '<div class="note"><b>Bench:</b> ' + esc(r.b.join(', ')) + '</div>' : '') +
     '<div class="actions"><a class="btn sm outline" href="https://wa.me/?text=' + encodeURIComponent(rosterText(data)) + '" target="_blank" rel="noopener">Share on WhatsApp</a><button type="button" class="btn sm ghost" data-act="copy-final">Copy as text</button></div></div></section>';
 }
@@ -1144,14 +1159,15 @@ function meHTML(vm) {
     } else leave = (person.declined ? '<div class="note">An organizer kept you on the list. Talk to them if you really can\'t make it.</div>' : '') + '<div class="actions"><button type="button" class="btn sm ghost" data-act="leave-ask">Can\'t make it? Leave the list</button></div>';
     return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + '</span>' + pay + (person.leaving ? '<span class="pill warn">wants to leave</span>' : '') + '</div>' + leave + calendarHTML(ev) + '</div></section>';
   }
-  const full = vm.attendees.length >= vm.capacity; const opens = opensAtDate(ev); const closed = !signupsOpen(ev);
+  const full = vm.attendees.length >= vm.capacity; const benchFull = !!vm.listFull; const opens = opensAtDate(ev); const closed = !signupsOpen(ev);
   const mine = S.data.user ? (S.data.signups || []).find(x => x.sessionId === vm.eventId && x.uid === S.data.user.uid && x.addedBy === 'self') : null; const removed = !!(mine && mine.status === 'removed');
   const myName = (S.data.profile && S.data.profile.name) || '';
   const head = closed ? '<h3>Not open yet</h3><p class="muted small">' + vm.capacity + ' spots, first come first served from the moment it opens. The server decides the order, so a changed clock on a phone makes no difference.</p>' + countdownHTML(ev)
-    : '<h3>' + (full ? 'Full · join the bench' : 'Join this session') + '</h3><p class="muted small">' + (full ? 'You\'ll be B' + (vm.bench.length + 1) + ' and move up when someone leaves.' : (vm.capacity - vm.attendees.length) + ' spot' + (vm.capacity - vm.attendees.length === 1 ? '' : 's') + ' left. First come, first served.') + '</p>';
+    : '<h3>' + (benchFull ? 'Full · the bench is full too' : full ? 'Full · join the bench' : 'Join this session') + '</h3><p class="muted small">' + (benchFull ? 'All ' + vm.capacity + ' spots and the ' + vm.benchCap + ' bench places are taken. A place frees up when someone leaves.' : full ? 'You\'ll be B' + (vm.bench.length + 1) + (vm.benchCap != null ? ' of ' + vm.benchCap : '') + ' and move up when someone leaves.' : (vm.capacity - vm.attendees.length) + ' spot' + (vm.capacity - vm.attendees.length === 1 ? '' : 's') + ' left. First come, first served.') + '</p>';
   let btn;
   if (!loggedIn()) btn = '<button type="button" class="btn big" data-act="auth-open">' + (closed ? 'Log in now, so you\'re ready' : 'Log in to join') + '</button><div class="actions small"><span class="muted">No account yet?</span><button type="button" class="link" data-act="auth-open" data-mode="register">Create one</button></div>';
   else if (removed) btn = '<div class="note">The organizer took you off this session\'s list. Message them if that\'s a mistake.</div>';
+  else if (benchFull) btn = '<button type="button" class="btn big" disabled>The list is full</button>';
   else if (closed) btn = '<button type="button" class="btn big" disabled>Join button appears when it opens</button><p class="small muted">You\'re logged in as ' + esc(myName) + '. Keep this page open; it switches to the Join button by itself.</p>';
   else btn = '<button type="button" class="btn big" data-act="join"' + (ui.joining ? ' disabled' : '') + '>' + (ui.joining ? 'Saving…' : (full ? 'Put me on the bench' : 'Join as ' + esc(myName))) + '</button>';
   return '<section class="card"><div class="stack"><div>' + head + '</div>' + (ui.joinErr ? '<div class="note bad">' + esc(ui.joinErr) + '</div>' : '') + btn + calendarHTML(ev) + '</div></section>';
@@ -1179,7 +1195,7 @@ function listsHTML(vm) {
   const pend = vm.attendees.filter(p => p.leaving);
   const notice = isOrg() && pend.length ? '<div class="note warn" style="margin-bottom:12px"><b>' + pend.length + (pend.length === 1 ? ' person wants' : ' people want') + ' to leave:</b> ' + esc(pend.map(p => p.name).join(', ')) + '. Use "Let go" or "Keep" next to the name. More than 3 hours before the start, leaving needs an organizer\'s okay; closer to it people leave by themselves.</div>' : '';
   return notice + '<section><h2 class="sec">Playing <span class="cnt">' + vm.playing.length + ' of ' + vm.capacity + '</span></h2><div class="list">' + play + '</div>' + add + '</section>' +
-    '<section class="bench"><h2 class="sec"><span class="dot"></span>Bench <span class="cnt">' + vm.bench.length + '</span></h2><div class="list">' + (bench || '<div class="empty">Empty. Anyone who joins after the list is full lands here, in order.</div>') + '</div></section>';
+    '<section class="bench"><h2 class="sec"><span class="dot"></span>Bench <span class="cnt">' + vm.bench.length + (vm.benchCap != null ? ' of ' + vm.benchCap : '') + '</span></h2><div class="list">' + (bench || '<div class="empty">Empty. Anyone who joins after the list is full lands here, in order.</div>') + '</div></section>';
 }
 function attendanceStats(vm) {
   const sessions = vm.history.slice(); if (vm.played) sessions.push({ event: vm.event, attendees: vm.attendees.map(p => ({ name: p.name, paid: p.paid, noshow: !!p.noshow })) });
@@ -1205,8 +1221,8 @@ function historyHTML(vm) {
     const playing = cap ? att.slice(0, cap) : att; const bench = cap ? att.slice(cap) : []; const noshows = playing.filter(a => a.noshow).length;
     const ctx = ctxFor(s.id); const editing = isOrg() && ui.roster.id === s.id && ui.roster.mode !== 'closed';
     let teams = '';
-    if (editing) teams = '<div class="hroster"><div class="small muted">Teams for this session</div>' + rosterEditorHTML(ctx) + '</div>';
-    else if (s.roster && Array.isArray(s.roster.t)) teams = '<div class="hroster"><div class="small muted">Teams</div>' + courtsHTML(teamsFromNames(ctx, s.roster.t), { edit: false, flag: false }, ctx) + (isOrg() ? '<div class="actions"><button type="button" class="btn xs ghost" data-act="roster-open" data-id="' + esc(s.id) + '">Edit teams</button></div>' : '') + '</div>';
+    if (editing) teams = '<div class="hroster"><div class="small muted">Teams for this session</div>' + (ui.roster.mode === 'courts' ? rosterCourtsHTML(ctx) : rosterEditorHTML(ctx)) + '</div>';
+    else if (s.roster && Array.isArray(s.roster.t)) teams = '<div class="hroster"><div class="small muted">Teams · ' + esc(courtsLabel(rosterCourtsOf(s.roster) || courtList(ev))) + '</div>' + courtsHTML(teamsFromNames(ctx, s.roster.t), { edit: false, flag: false }, ctx, rosterCourtsOf(s.roster) || courtList(ev)) + (isOrg() ? '<div class="actions"><button type="button" class="btn xs ghost" data-act="roster-open" data-id="' + esc(s.id) + '">Edit teams</button></div>' : '') + '</div>';
     else teams = '<div class="hroster"><span class="small muted">No teams stored for this session.</span>' + (isOrg() ? '<div class="actions"><button type="button" class="btn xs outline" data-act="roster-open" data-id="' + esc(s.id) + '">Set teams</button></div>' : '') + '</div>';
     return '<details class="hist" data-id="' + esc(s.id) + '"' + (editing || ui.histOpenIds[s.id] ? ' open' : '') + '><summary><span>' + esc(fmtEventDate(ev)) + (ev.time ? ' ' + esc(ev.time) : '') + (ev.place ? ' · ' + esc(ev.place) : '') + '</span><span class="cnt">' + (playing.length - noshows) + ' played' + (noshows ? ', ' + noshows + ' no-show' : '') + (bench.length ? ', ' + bench.length + ' bench' : '') + (s.roster ? ' · teams' : '') + (s.played ? '' : ' · not marked as played') + '</span></summary>' +
       '<div class="hbody">' + (courtSummary(ev) ? '<div class="small muted">' + esc(courtSummary(ev)) + ' · ' + att.filter(a => a.paid).length + ' paid</div>' : '') + '<ol>' + playing.map(a => '<li>' + esc(a.name) + (a.noshow ? ' <span class="pill" style="color:var(--bad);background:var(--bad-soft)">no-show</span>' : '') + (a.paid ? ' <span class="pill ok">paid</span>' : '') + '</li>').join('') + '</ol>' +
@@ -1224,16 +1240,16 @@ function orgHTML(vm) {
   return '<section class="org"><div class="orghead"><h3>Organizer</h3><span class="small muted orgwho">' + esc(d.user.email) + '</span><button type="button" class="btn xs ghost" data-act="log-open">Activity log</button></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
 }
 function eventFormHTML(vm) {
-  const ui = U(); const ev = ui.ev || {}; const cap = capacityOf({ courtsList: uiCourts(ev) });
+  const ui = U(); const ev = ui.ev || {}; const cap = uiCap(ev); const bench = uiBench(ev);
   const cur = vm.event;
   return '<div class="sub"><h2 class="sec">Session</h2>' +
     (cur ? '<div class="small muted">Current: ' + esc(fmtEventDate(cur)) + (cur.time ? ' ' + esc(cur.time) : '') + ' · ' + vm.attendees.length + ' signed up (' + vm.attendees.filter(p => p.paid).length + ' paid)</div>' : '<div class="small muted">No session yet. Fill this in and start one.</div>') +
     '<div class="grid2"><div class="field"><label class="f" for="evDate">Date</label><input class="inp" id="evDate" data-ui="evDate" type="date" value="' + esc(ev.date || '') + '"></div><div class="field"><label class="f" for="evTime">Time</label><input class="inp" id="evTime" data-ui="evTime" type="time" value="' + esc(ev.time || '') + '"></div></div>' +
     '<div class="field"><label class="f" for="evPlace">Place</label><input class="inp" id="evPlace" data-ui="evPlace" value="' + esc(ev.place || '') + '" placeholder="Hall or beach court"></div>' +
-    '<div class="grid3"><div class="field"><label class="f" for="evC4">Courts 4 vs 4 <span class="muted">(8 each)</span></label><input class="inp" id="evC4" data-ui="evC4" type="number" min="0" max="8" inputmode="numeric" value="' + esc(ev.c4 == null ? 1 : ev.c4) + '"></div><div class="field"><label class="f" for="evC3">Courts 3 vs 3 <span class="muted">(6 each)</span></label><input class="inp" id="evC3" data-ui="evC3" type="number" min="0" max="8" inputmode="numeric" value="' + esc(ev.c3 == null ? 0 : ev.c3) + '"></div><div class="field"><label class="f" for="evPrice">Price per person</label><input class="inp" id="evPrice" data-ui="evPrice" value="' + esc(ev.price || '') + '" placeholder="8 €"></div></div>' +
+    '<div class="grid3"><div class="field"><label class="f" for="evCap">Roster <span class="muted">(players)</span></label><input class="inp" id="evCap" data-ui="evCap" type="number" min="2" max="60" step="2" inputmode="numeric" value="' + esc(ev.cap == null ? 14 : ev.cap) + '"></div><div class="field"><label class="f" for="evBench">Bench <span class="muted">(max.)</span></label><input class="inp" id="evBench" data-ui="evBench" type="number" min="0" max="60" inputmode="numeric" value="' + esc(ev.bench == null ? 4 : ev.bench) + '"></div><div class="field"><label class="f" for="evPrice">Price per person</label><input class="inp" id="evPrice" data-ui="evPrice" value="' + esc(ev.price || '') + '" placeholder="8 €"></div></div>' +
     '<div class="grid2"><div class="field"><label class="f" for="evOpensAt">Sign-ups open at <span class="muted">(optional)</span></label><input class="inp" id="evOpensAt" data-ui="evOpensAt" type="datetime-local" value="' + esc(ev.opensAt || '') + '"></div><div class="field"><label class="f" for="evDuration">Duration (minutes)</label><input class="inp" id="evDuration" data-ui="evDuration" type="number" min="30" max="600" step="15" inputmode="numeric" value="' + esc(ev.duration || 120) + '"></div></div>' +
     '<div class="field"><label class="f" for="evNote">Note for players (optional)</label><input class="inp" id="evNote" data-ui="evNote" value="' + esc(ev.note || '') + '" placeholder="Bring a white or dark shirt"></div>' +
-    '<div class="small muted">Capacity: <b id="capPreview">' + cap + '</b> players. Everyone after that goes to the bench. The roster spreads players evenly over the courts.' + (ev.opensAt ? ' Joins before the opening time don\'t count.' : '') + '</div>' +
+    '<div class="small muted"><b id="capPreview">' + cap + '</b> players play; after that <span id="benchPreview">' + (bench == null ? 'anyone can wait on the bench' : 'up to <b>' + bench + '</b> wait on the bench') + '</span>. The courts (2v2 to 5v5) are chosen when you generate the roster.' + (ev.opensAt ? ' Joins before the opening time don\'t count.' : '') + '</div>' +
     '<div class="actions">' + (cur ? '<button type="button" class="btn sm" data-act="ev-update">Update this session</button>' : '') +
     (ui.newConfirm ? '<span class="small">Start a new session? The current list and payments move to Past sessions.</span><button type="button" class="btn sm danger" data-act="ev-new-yes">Start new</button><button type="button" class="btn sm ghost" data-act="ev-new-no">Cancel</button>' : '<button type="button" class="btn sm ' + (cur ? 'outline' : '') + '" data-act="ev-new-ask">' + (cur ? (vm.played ? 'Start the next session' : 'New session (resets the list)') : 'Start the session') + '</button>') +
     (cur || vm.history.length ? '<button type="button" class="btn sm ghost" data-act="ev-copy-last">Same as last time, +7 days</button>' : '') +
@@ -1242,7 +1258,7 @@ function eventFormHTML(vm) {
 function announceText(vm) {
   const ev = vm.event; const L = [];
   L.push('🏐 ' + (S.cfg.title || 'Volleyball') + ' · ' + fmtEventLong(ev) + (ev.time ? ' · ' + ev.time : '') + (ev.place ? ' · ' + ev.place : ''));
-  L.push([courtSummary(ev), vm.capacity + ' spots', ev.price ? ev.price + ' per person' : ''].filter(Boolean).join(', ') + '.');
+  L.push([vm.capacity + ' spots' + (vm.benchCap != null ? ' + ' + vm.benchCap + ' on the bench' : ''), ev.price ? ev.price + ' per person' : ''].filter(Boolean).join(', ') + '.');
   if (S.cfg.pageUrl) L.push('Sign up: ' + S.cfg.pageUrl);
   L.push('First come, first served. Extras go on the bench and move up if someone drops out.');
   const o = opensAtDate(ev); if (o && o.getTime() > now()) L.push('Sign-ups open ' + fmtWhen(o) + '.');
@@ -1304,28 +1320,39 @@ function rosterSectionHTML(vm) {
   if (!editingCurrent) {
     body = '<div class="small muted">' + paid.length + ' paid of ' + vm.attendees.length + ' signed up' + (unpaidPlaying.length ? ' · not paid yet: ' + esc(unpaidPlaying.map(p => p.name).join(', ')) : '') + '.</div>' +
       '<div class="actions"><button type="button" class="btn sm" data-act="roster-open">' + (draft || vm.roster ? 'Open the roster' : 'Generate roster') + '</button>' + (vm.roster ? '<span class="small muted">Teams are saved' + (draft && !rosterSaved(ctx, draft) ? ' · draft has unsaved changes' : '') + '.</span>' : '') + '</div>';
-  } else body = rosterEditorHTML(ctx);
+  } else body = r.mode === 'courts' ? rosterCourtsHTML(ctx) : rosterEditorHTML(ctx);
   return '<div class="sub"><h2 class="sec">Final roster</h2>' + body + '</div>';
 }
-function rosterHowHTML(ctx) {
-  const f = familiarity(ctx); const multi = courtList(ctx.ev).length > 1;
-  return (multi ? (f.sessions ? 'People who often played together share a court (from ' + f.sessions + ' past session' + (f.sessions === 1 ? '' : 's') + ' with saved teams); ' : 'No saved teams from past sessions yet, so courts are mixed randomly; ') : '') + 'teams are split so their average levels are as close as possible.';
+// Step 1 of a new roster: how many courts of each type. Their total has to match the roster count.
+function rosterCourtsHTML(ctx) {
+  const r = U().roster; const rc = r.rc || countsOf([]); const cap = capacityOf(ctx.ev); const list = listOf(rc); const hold = list.reduce((t, f) => t + courtSize(f), 0);
+  const paid = ctx.attendees.filter(p => p.paid).length; const ok = cap > 0 && hold === cap;
+  const rows = FORMATS.map(f => '<div class="field"><label class="f" for="rc' + f + '">' + f + ' <span class="muted">(' + courtSize(f) + ' players)</span></label><input class="inp" id="rc' + f + '" data-ui="rc' + f + '" type="number" min="0" max="12" inputmode="numeric" value="' + (rc[f] || 0) + '"></div>').join('');
+  const status = !cap ? '<div class="note bad">This session has no roster count. Set it in the session form first.</div>'
+    : ok ? '<div class="note ok">' + esc(courtsLabel(list)) + ': room for exactly ' + cap + ' players.</div>'
+    : '<div class="note bad">These courts hold <b>' + hold + '</b> players, but the roster is <b>' + cap + '</b>. ' + (hold < cap ? 'Add room for ' + (cap - hold) + ' more.' : 'That is ' + (hold - cap) + ' too many.') + (cap % 2 ? ' An odd roster count can never match; change it in the session form.' : '') + '</div>';
+  return '<div class="stack"><div class="small muted">How many courts of each type? The roster has <b>' + cap + '</b> spots' + (paid !== cap ? ' (' + paid + ' paid so far)' : '') + '. The strongest players, by rating, go to the smallest courts.</div><div class="grid2">' + rows + '</div>' + status +
+    '<div class="actions"><button type="button" class="btn sm" data-act="roster-generate"' + (ok ? '' : ' disabled') + '>Generate teams</button><button type="button" class="btn sm ghost" data-act="roster-close">Cancel</button></div></div>';
+}
+function rosterHowHTML(ctx, courts) {
+  const f = familiarity(ctx); const cl = courts || rosterCourtsFor(ctx); const sizes = new Set(cl.map(courtSize)); const multi = cl.length > 1;
+  return (sizes.size > 1 ? 'The strongest players (by rating) are on the smallest courts; ' : '') + (multi ? (f.sessions ? 'people who often played together share a court when the courts are the same size (from ' + f.sessions + ' past session' + (f.sessions === 1 ? '' : 's') + ' with saved teams); ' : 'without saved teams from past sessions, courts of the same size are mixed randomly; ') : '') + 'teams are split so their average levels are as close as possible.';
 }
 function rosterEditorHTML(ctx) {
-  const r = U().roster; const teams = draftFor(ctx) || [];
+  const r = U().roster; const teams = draftFor(ctx) || []; const courts = rosterCourtsFor(ctx);
   const placed = new Set(); teams.forEach(t => t.forEach(p => placed.add(p.k)));
   const pool = ctx.attendees.filter(p => !placed.has(p.key)); const benchNames = pool.map(p => p.name);
-  const data = rosterData(ctx, teams, benchNames); const saved = rosterSaved(ctx, teams);
+  const data = rosterData(ctx, teams, benchNames, courts); const saved = rosterSaved(ctx, teams);
   if (r.mode === 'edit') {
     const poolChips = pool.map(p => '<button type="button" class="chip' + (r.sel && r.sel.pool === p.key ? ' sel' : '') + (p.paid ? '' : ' unpaid') + '" data-act="roster-pool" data-key="' + esc(p.key) + '">' + esc(p.name) + (p.paid ? '' : ' · not paid') + '</button>').join('') || '<span class="small muted">Everyone is placed.</span>';
-    return '<div class="stack"><div class="legend">' + rosterHowHTML(ctx) + ' Tap a player, then tap another to swap them, or tap "Move here" on a team. Dashed chips haven\'t paid.</div>' +
-      courtsHTML(teams, { edit: true, sel: r.sel }, ctx) +
+    return '<div class="stack"><div class="legend">' + esc(courtsLabel(courts)) + '. ' + rosterHowHTML(ctx, courts) + ' Tap a player, then tap another to swap them, or tap "Move here" on a team. Dashed chips haven\'t paid.</div>' +
+      courtsHTML(teams, { edit: true, sel: r.sel }, ctx, courts) +
       '<div><h2 class="sec"><span class="dot"></span>Not in the roster <span class="cnt">' + pool.length + '</span></h2><div class="chips">' + poolChips + '</div></div>' +
-      '<div class="actions">' + (r.sel && r.sel.t != null ? '<button type="button" class="btn sm danger" data-act="roster-remove">Remove from roster</button>' : '') + '<button type="button" class="btn sm ghost" data-act="roster-shuffle">Regenerate</button><button type="button" class="btn sm ghost" data-act="roster-close">Close</button><span style="flex:1 1 auto"></span><button type="button" class="btn sm" data-act="roster-preview">Preview</button></div>' +
+      '<div class="actions">' + (r.sel && r.sel.t != null ? '<button type="button" class="btn sm danger" data-act="roster-remove">Remove from roster</button>' : '') + '<button type="button" class="btn sm ghost" data-act="roster-shuffle">Regenerate</button><button type="button" class="btn sm ghost" data-act="roster-courts" title="Pick other courts and generate again">Change courts</button><button type="button" class="btn sm ghost" data-act="roster-close">Close</button><span style="flex:1 1 auto"></span><button type="button" class="btn sm" data-act="roster-preview">Preview</button></div>' +
       ratingsHTML(ctx) + '</div>';
   }
   return '<div class="stack"><div class="preview"><div class="ph"><div><div class="kicker" style="color:var(--muted)">' + esc(data.title) + '</div><h3>' + esc(data.dateLine) + '</h3><div class="muted small">' + esc(data.place) + '</div></div></div>' +
-    courtsHTML(teams, { edit: false, flag: true }, ctx) +
+    courtsHTML(teams, { edit: false, flag: true }, ctx, courts) +
     (benchNames.length ? '<div class="note"><b>Bench:</b> ' + esc(benchNames.join(', ')) + '</div>' : '') + (data.note ? '<div class="small muted">' + esc(data.note) + '</div>' : '') + '</div>' +
     '<div class="actions"><button type="button" class="btn sm ghost" data-act="roster-edit">Back to editing</button><button type="button" class="btn sm ghost" data-act="roster-close">Close</button><button type="button" class="btn sm' + (saved ? ' ghost' : '') + '" data-act="roster-save"' + (saved ? ' disabled' : '') + '>' + (saved ? 'Saved' : 'Save teams') + '</button><span class="small muted">' + (saved ? 'Stored with the session' + (ctx.current ? ' and shown to everyone on this page' : '') + '.' : 'Exporting also saves them.') + '</span></div>' +
     '<div class="hr"></div><div class="small muted">Export</div>' +
@@ -1419,15 +1446,13 @@ function render() {
   S.openState = S.vm.event && opensAtMs(S.vm.event) ? signupsOpen(S.vm.event) : undefined;
   S.leaveState = S.vm.event ? leaveIsFree(S.vm.event) : undefined;
 }
-function uiCourts(e) {
-  const n4 = Math.min(8, Math.max(0, parseInt(e && e.c4, 10) || 0)), n3 = Math.min(8, Math.max(0, parseInt(e && e.c3, 10) || 0));
-  return Array(n4).fill('4v4').concat(Array(n3).fill('3v3'));
-}
+function uiCap(e) { return Math.min(60, Math.max(0, parseInt(e && e.cap, 10) || 0)); }
+function uiBench(e) { if (!e || e.bench == null || String(e.bench).trim() === '') return null; const b = parseInt(e.bench, 10); return isNaN(b) ? null : Math.min(60, Math.max(0, b)); }
 function syncEventForm() {
   const ui = U(); const ev = S.vm.event;
   if (ui.evDirty) return;
-  if (ev) { const cl = courtList(ev); ui.ev = { date: ev.date || '', time: ev.time || '', place: ev.place || '', c4: cl.filter(f => f === '4v4').length, c3: cl.filter(f => f === '3v3').length, price: ev.price || '', note: ev.note || '', opensAt: ev.opensAt || '', duration: ev.duration || 120 }; }
-  else if (!ui.ev) ui.ev = { date: '', time: '19:00', place: '', c4: 1, c3: 0, price: '', note: '', opensAt: '', duration: 120 };
+  if (ev) { const b = benchCapOf(ev); ui.ev = { date: ev.date || '', time: ev.time || '', place: ev.place || '', cap: capacityOf(ev) || 14, bench: b == null ? '' : b, price: ev.price || '', note: ev.note || '', opensAt: ev.opensAt || '', duration: ev.duration || 120 }; }
+  else if (!ui.ev) ui.ev = { date: '', time: '19:00', place: '', cap: 14, bench: 4, price: '', note: '', opensAt: '', duration: 120 };
 }
 
 /* ================= actions ================= */
@@ -1437,10 +1462,9 @@ function newEventId(date) {
 }
 function eventFields() { const p = eventPayload(''); delete p.id; return p; }
 function eventPayload(id) {
-  const e = U().ev || {}; let cl = uiCourts(e); if (!cl.length) cl = ['4v4'];
-  const n4 = cl.filter(f => f === '4v4').length, n3 = cl.length - n4;
+  const e = U().ev || {}; const cap = uiCap(e) || 8; const bench = uiBench(e);
   const dur = Math.min(600, Math.max(30, parseInt(e.duration, 10) || 120));
-  return { id, date: e.date || localDateStr(new Date()), time: e.time || '', place: normName(e.place), courts: cl.length, format: n4 && n3 ? 'mixed' : (n3 ? '3v3' : '4v4'), courtsList: cl, price: normName(e.price), note: normName(e.note), opensAt: (e.opensAt || '').trim(), duration: dur };
+  return { id, date: e.date || localDateStr(new Date()), time: e.time || '', place: normName(e.place), capacity: cap, benchCap: bench, price: normName(e.price), note: normName(e.note), opensAt: (e.opensAt || '').trim(), duration: dur };
 }
 // What an activity-log entry says about a person on the list.
 function logEntryFor(p, type) { return { type, sessionId: S.vm.eventId || '', name: p.name, uid: p.addedBy === 'self' ? (p.uid || '') : '', key: p.key }; }
@@ -1448,11 +1472,12 @@ function logEntryFor(p, type) { return { type, sessionId: S.vm.eventId || '', na
 function movesUpFor(p) { const vm = S.vm; const idx = vm.attendees.indexOf(p); return idx >= 0 && idx < vm.capacity && vm.bench.length ? vm.bench[0] : null; }
 function withMoveUp(e, p) { const up = movesUpFor(p); if (up) e.detail = up.name + ' moves up from the bench'; return e; }
 function sessionLabel(f) { return [fmtEventDate(f), f.time, f.place, courtSummary(f), f.opensAt ? 'opens ' + f.opensAt.replace('T', ' ') : ''].filter(Boolean).join(' · '); }
+const benchText = b => b == null ? 'unlimited' : String(b);
 function sessionDiff(before, after) {
   const b = before || {}; const out = [];
   const cmp = (label, x, y) => { x = x == null ? '' : String(x); y = y == null ? '' : String(y); if (x !== y) out.push(label + ' ' + (x || '–') + ' → ' + (y || '–')); };
   cmp('date', b.date, after.date); cmp('time', b.time, after.time); cmp('place', b.place, after.place);
-  cmp('courts', courtSummary(b), courtSummary(after)); cmp('price', b.price, after.price); cmp('opens', (b.opensAt || '').replace('T', ' '), (after.opensAt || '').replace('T', ' '));
+  cmp('roster', capacityOf(b), after.capacity); cmp('bench', benchText(benchCapOf(b)), benchText(after.benchCap)); cmp('price', b.price, after.price); cmp('opens', (b.opensAt || '').replace('T', ' '), (after.opensAt || '').replace('T', ' '));
   cmp('duration', b.duration, after.duration); cmp('note', b.note, after.note);
   return out.join('; ');
 }
@@ -1462,6 +1487,7 @@ const actions = {
     const ui = U(); ui.joinErr = '';
     if (!loggedIn()) { ui.authOpen = true; ui.authMode = 'login'; render(); return; }
     if (!S.vm.event || S.vm.played || !signupsOpen(S.vm.event) || ui.joining || S.vm.myKey) { render(); return; }
+    if (S.vm.listFull) { ui.joinErr = 'The list is full, including the bench.'; render(); return; }
     const name = normName((S.data.profile && S.data.profile.name) || S.data.user.displayName || '').slice(0, 60);
     if (!name) { ui.joinErr = 'Your profile has no name yet.'; render(); return; }
     const clash = S.vm.attendees.find(p => nameKey(p.name) === nameKey(name));
@@ -1531,7 +1557,7 @@ const actions = {
     catch (e) { ui.acErr = /invalid-credential|wrong-password|invalid-login/.test(String(e && e.code)) ? 'The current password is wrong.' : authText(e); }
     ui.acBusy = false; render();
   },
-  'logout': async () => { const ui = U(); ui.accountOpen = false; if (ui.logOpen) { ui.logOpen = false; B.unwatchLog(); } ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null }; await run(() => B.signOut(), 'auth'); render(); },
+  'logout': async () => { const ui = U(); ui.accountOpen = false; if (ui.logOpen) { ui.logOpen = false; B.unwatchLog(); } ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null, rc: null }; await run(() => B.signOut(), 'auth'); render(); },
   'cal-ics': async () => { const ev = S.vm.event; if (!ev) return; await saveFile('volleyball-' + (ev.date || 'session') + '.ics', icsText(ev), 'text/calendar'); },
   'leave-ask': () => { U().leaveConfirm = true; render(); },
   'leave-no': () => { U().leaveConfirm = false; render(); },
@@ -1572,7 +1598,7 @@ const actions = {
   'ev-new-no': () => { U().newConfirm = false; render(); },
   'ev-new-yes': async () => {
     const ui = U(); const f = eventFields(); const id = newEventId(f.date);
-    ui.newConfirm = false; ui.evDirty = false; ui.roster = { mode: 'closed', sel: null, id: null };
+    ui.newConfirm = false; ui.evDirty = false; ui.roster = { mode: 'closed', sel: null, id: null, rc: null };
     let prev = null;
     if (S.vm.eventId) { await ensureRosterSaved(ctxFor(null)); prev = { id: S.vm.eventId, summary: summaryOf(S.vm) }; }
     await run(() => B.createSession({ id, fields: f, prev }, { type: 'session-create', sessionId: id, detail: sessionLabel(f) }), 'org');
@@ -1594,10 +1620,10 @@ const actions = {
   'reopen': async () => { if (!S.vm.eventId) return; await run(() => B.reopen(S.vm.eventId, { type: 'reopened', sessionId: S.vm.eventId }), 'org'); },
   'ev-copy-last': () => {
     const src = S.vm.event || (S.vm.history.length ? S.vm.history[S.vm.history.length - 1].event : null); if (!src) return;
-    const cl = courtList(src); const d = eventDateObj(src) || new Date(); const next = new Date(d); next.setDate(next.getDate() + 7);
+    const bc = benchCapOf(src); const d = eventDateObj(src) || new Date(); const next = new Date(d); next.setDate(next.getDate() + 7);
     let opensAt = '';
     if (src.opensAt) { const o = new Date(src.opensAt); if (!isNaN(o)) { o.setDate(o.getDate() + 7); opensAt = localDateStr(o) + 'T' + pad(o.getHours()) + ':' + pad(o.getMinutes()); } }
-    U().ev = { date: localDateStr(next), time: src.time || '', place: src.place || '', c4: cl.filter(f => f === '4v4').length, c3: cl.filter(f => f === '3v3').length, price: src.price || '', note: src.note || '', opensAt, duration: src.duration || 120 };
+    U().ev = { date: localDateStr(next), time: src.time || '', place: src.place || '', cap: capacityOf(src) || 14, bench: bc == null ? '' : bc, price: src.price || '', note: src.note || '', opensAt, duration: src.duration || 120 };
     U().evDirty = true; render(); toast('Filled in from the last session. Check it, then start the new session.');
   },
   'announce-copy': () => copyText(announceText(S.vm)),
@@ -1614,8 +1640,15 @@ const actions = {
     await run(() => B.setRating(n, label, next || null, { type: 'rating', sessionId: S.vm.eventId || '', name: label, detail: (before || 'unrated') + ' → ' + (next || 'unrated') }), 'org');
   },
   'roster-open': (el) => { openRoster(el.dataset.id || null); render(); },
-  'roster-shuffle': () => { const ctx = activeCtx(); if (!ctx) return; setDraft(ctx, generateTeams(ctx)); U().roster.sel = null; render(); toast('New teams generated'); },
-  'roster-close': () => { U().roster = { mode: 'closed', sel: null, id: null }; render(); },
+  'roster-shuffle': () => { const ctx = activeCtx(); if (!ctx) return; setDraft(ctx, generateTeams(ctx, rosterCourtsFor(ctx))); U().roster.sel = null; render(); toast('New teams generated'); },
+  'roster-courts': () => { const ctx = activeCtx(); if (!ctx) return; const r = U().roster; r.rc = countsOf(rosterCourtsFor(ctx)); r.mode = 'courts'; r.sel = null; render(); },
+  'roster-generate': () => {
+    const ctx = activeCtx(); if (!ctx) return; const r = U().roster; const list = listOf(r.rc); const cap = capacityOf(ctx.ev);
+    const hold = list.reduce((t, f) => t + courtSize(f), 0);
+    if (!cap || hold !== cap) { toast('The courts have to hold exactly ' + cap + ' players.'); render(); return; }
+    setDraft(ctx, generateTeams(ctx, list), list); r.mode = 'edit'; r.sel = null; render(); toast('Teams generated');
+  },
+  'roster-close': () => { U().roster = { mode: 'closed', sel: null, id: null, rc: null }; render(); },
   'roster-chip': (el) => {
     const r = U().roster; const t = +el.dataset.t, i = +el.dataset.i; const ctx = activeCtx(); const d = draftFor(ctx); if (!d) return;
     if (r.sel && r.sel.t === t && r.sel.i === i) { r.sel = null; render(); return; }
@@ -1636,7 +1669,7 @@ const actions = {
   'roster-save': async () => { const ctx = activeCtx(); if (!ctx) return; const did = await ensureRosterSaved(ctx); toast(did ? 'Teams saved' : 'Already saved'); },
   'export-wa': () => { const ctx = activeCtx(); if (ctx) ensureRosterSaved(ctx); },
   'export-copy': async () => { const d = activeRosterData(); if (!d) return; copyText(rosterText(d)); const ctx = activeCtx(); if (ctx) await ensureRosterSaved(ctx); },
-  'copy-final': () => { const vm = S.vm; const r = vm.roster; const ctx = ctxFor(null); if (!ctx || !r || !Array.isArray(r.t)) return; copyText(rosterText(rosterData(ctx, teamsFromNames(ctx, r.t), Array.isArray(r.b) ? r.b : []))); },
+  'copy-final': () => { const vm = S.vm; const r = vm.roster; const ctx = ctxFor(null); if (!ctx || !r || !Array.isArray(r.t)) return; copyText(rosterText(rosterData(ctx, teamsFromNames(ctx, r.t), Array.isArray(r.b) ? r.b : [], rosterCourtsOf(r) || courtList(ctx.ev)))); },
   'export-pdf': async () => { const d = activeRosterData(); const ctx = activeCtx(); if (!d || !ctx) return; toast('Building PDF…'); try { const blob = await makePDF(d); await saveFile('volleyball-roster-' + (ctx.ev.date || 'roster') + '.pdf', blob, 'application/pdf'); } catch (e) { toast('Could not build the PDF. Try the HTML file.'); } await ensureRosterSaved(ctx); },
   'export-html': async () => { const d = activeRosterData(); const ctx = activeCtx(); if (!d || !ctx) return; await saveFile('volleyball-roster-' + (ctx.ev.date || 'roster') + '.html', rosterHTML(d), 'text/html'); await ensureRosterSaved(ctx); },
   'setup-toggle': () => { const ui = U(); ui.setupOpen = !ui.setupOpen; ui.suSaved = false; if (ui.setupOpen) { ui.suTitle = S.cfg.title || ''; ui.suOrganizer = S.cfg.organizer || ''; ui.suPageUrl = S.cfg.pageUrl || (/^https?:/.test(location.href) && !inArtifact() ? location.href.split('#')[0].split('?')[0] : ''); } render(); },
@@ -1707,7 +1740,8 @@ async function checkForUpdate() {
 function handleInput(el) {
   if (!el || !el.dataset || !el.dataset.ui) return;
   const k = el.dataset.ui; const ui = U(); const v = el.type === 'checkbox' ? el.checked : el.value;
-  if (k.startsWith('ev')) { const f = k.slice(2, 3).toLowerCase() + k.slice(3); ui.ev = ui.ev || {}; ui.ev[f] = v; ui.evDirty = true; const cp = $('#capPreview'); if (cp) cp.textContent = capacityOf({ courtsList: uiCourts(ui.ev) }); return; }
+  if (k.startsWith('ev')) { const f = k.slice(2, 3).toLowerCase() + k.slice(3); ui.ev = ui.ev || {}; ui.ev[f] = v; ui.evDirty = true; const cp = $('#capPreview'); if (cp) cp.textContent = uiCap(ui.ev); const bp = $('#benchPreview'); if (bp) { const b = uiBench(ui.ev); bp.innerHTML = b == null ? 'anyone can wait on the bench' : 'up to <b>' + b + '</b> wait on the bench'; } return; }
+  if (/^rc\dv\d$/.test(k)) { const r = ui.roster; r.rc = r.rc || countsOf([]); r.rc[k.slice(2)] = Math.min(12, Math.max(0, parseInt(v, 10) || 0)); render(); return; }
   if (k === 'pairsTogether' || k === 'pairsApart') {
     S.pairs[k === 'pairsTogether' ? 'together' : 'apart'] = v; clearTimeout(pairsTimer);
     pairsTimer = setTimeout(() => { pairsTimer = null; run(() => B.savePairs(S.pairs), 'org'); }, 800); return;
@@ -1718,7 +1752,7 @@ function handleInput(el) {
   if (/^ac/.test(k)) { ui.acErr = ''; ui.acInfo = ''; }
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, balanceTeams, announceText, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, logCSV, logRows, logLine, get B() { return B; } };
+window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, suggestCourts, courtsLabel, capacityOf, benchCapOf, announceText, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, logCSV, logRows, logLine, get B() { return B; } };
 })();
 </script>
 
