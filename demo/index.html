@@ -183,6 +183,17 @@ details.help{font-size:14px}
 .legend{font-size:12.5px; color:var(--muted)}
 .toast{position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); background:var(--fg); color:var(--bg); padding:10px 14px; border-radius:var(--radius); font-size:14px; z-index:20; opacity:0; pointer-events:none; transition:opacity .2s; max-width:min(92vw,520px); text-align:center}
 .toast.on{opacity:1}
+.toast.err{background:var(--bad); color:#fff}
+.row.new{animation:rowin 1.4s ease-out}
+.row.moved{animation:rowmove 1.8s ease-out}
+@keyframes rowin{from{background:var(--ok-soft)} to{background:transparent}}
+@keyframes rowmove{from{background:var(--zone-soft)} to{background:transparent}}
+.btn.pulse{animation:pulse .7s ease-in-out 3}
+@keyframes pulse{0%,100%{transform:scale(1)} 50%{transform:scale(1.04)}}
+.offline{background:var(--zone-soft); color:var(--fg); font-size:13.5px; padding:8px 12px; border-radius:var(--radius); display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap}
+.recent{font-size:12.5px; color:var(--muted); margin-top:10px; display:flex; flex-wrap:wrap; gap:4px 12px}
+.pill.dirty{background:var(--zone-soft); color:var(--zone)}
+@media (prefers-reduced-motion: reduce){.row.new,.row.moved,.btn.pulse{animation:none}}
 @media (prefers-reduced-motion: reduce){.toast{transition:none}}
 .footer{font-size:12.5px; color:var(--muted); text-align:center}
 .hr{height:1px; background:var(--line)}
@@ -358,6 +369,7 @@ function summaryOf(vm, noshowExtra) { return { attendees: vm.attendees.map(p => 
 /* ================= state ================= */
 const S = {
   cfg: {}, data: emptyData('local'), vm: null, lastHTML: '', renderPending: false,
+  busy: new Map(), err: null, online: navigator.onLine !== false, lastChangeAt: 0, fp: '', myPrev: null, selfAction: null, posMap: new Map(), posChangedAt: new Map(), flashMe: 0, pulseUntil: 0, prevFull: null, prevLeaving: null,
   drafts: store.get('vb.drafts', {}) || {}, skills: {}, pairs: { together: '', apart: '' },
   ui: {
     joinName: '', joinEmail: '', joinErr: '', dup: null, leaveConfirm: false, guestOpen: false, guestName: '',
@@ -385,7 +397,9 @@ function onData(d) {
   if (who !== S.who) { S.who = who; const a = document.activeElement; if (a && a.blur && $('#app') && $('#app').contains(a)) a.blur(); }
   if (d.user) { U().authOpen = false; U().auPass = ''; }
   if (!pairsTimer) S.pairs = Object.assign({ together: '', apart: '' }, d.pairs || {});
-  S.vm = buildVM(d); render();
+  S.vm = buildVM(d);
+  trackChanges(d, S.vm);
+  render();
   // Sessions from before v12 have no stored start time; the first organizer to open the page adds it (needed for the 3-hour leave window).
   const ev = S.vm.event;
   if (d.mode === 'firebase' && isOrg() && ev && ev.date && !ev.startsAtMs && S.vm.eventId && S.backfilled !== S.vm.eventId) { S.backfilled = S.vm.eventId; B.updateSession(S.vm.eventId, { date: ev.date, time: ev.time }).catch(() => {}); }
@@ -399,7 +413,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
@@ -431,8 +445,8 @@ async function authRun(fn) {
   catch (e) { ui.authBusy = false; ui.authErr = authText(e); render(); return false; }
 }
 async function run(fn, where) {
-  try { return await fn(); }
-  catch (e) { toast(S.data.mode === 'firebase' ? fbExplain(e, where) : ((e && e.message) || 'Something went wrong')); return null; }
+  try { const r = await fn(); if (S.err) { S.err = null; S.lastHTML = ''; render(); } return r; }
+  catch (e) { const text = S.data.mode === 'firebase' ? fbExplain(e, where) : ((e && e.message) || 'Something went wrong'); S.err = { text, at: Date.now() }; toast(text, { err: true }); S.lastHTML = ''; render(); return null; }
 }
 
 function firebaseBackend(conf) {
@@ -730,9 +744,91 @@ function localBackend() {
   };
 }
 
+/* ---- live feedback: notice what changed, and what happened to you ---- */
+function myState(d, vm) {
+  const u = d.user; if (!u || !vm.eventId) return null;
+  const rec = (d.signups || []).find(x => x.sessionId === vm.eventId && x.uid === u.uid && x.addedBy === 'self');
+  if (!rec) return { sid: vm.eventId, uid: u.uid, status: 'none', pending: false, idx: -1, bench: false, pos: '', paid: false };
+  const p = vm.people.get(rec.id); const idx = p && p.active ? vm.attendees.indexOf(p) : -1;
+  return { sid: vm.eventId, uid: u.uid, key: rec.id, status: rec.status, pending: !!rec.pending, idx, bench: idx >= vm.capacity, pos: idx < 0 ? '' : (idx >= vm.capacity ? 'B' + (idx - vm.capacity + 1) : '#' + (idx + 1)), paid: !!rec.paid };
+}
+function trackChanges(d, vm) {
+  // last change of the list (for the status line)
+  const fp = (d.signups || []).map(x => x.id + ':' + x.status + ':' + (x.createdAt || '') + ':' + x.name + ':' + (x.paid ? 1 : 0)).join('|') + '#' + (d.sessions || []).map(x => x.id + ':' + x.status + ':' + (x.roster ? 1 : 0)).join('|') + '#' + ((d.config || {}).currentSessionId || '');
+  if (fp !== S.fp) { if (S.fp) S.lastChangeAt = Date.now(); S.fp = fp; }
+  // the organizer hears about new leave requests
+  const leaving = new Set(vm.attendees.filter(p => p.leaving).map(p => p.key));
+  if (S.prevLeaving && isOrg()) leaving.forEach(k => { if (!S.prevLeaving.has(k) && !(S.selfAction && S.selfAction.type === 'request')) { const p = vm.people.get(k); if (p) { toast(p.name + ' asks to leave. Use "Let go" or "Keep" in the list.', { ms: 5000 }); buzz(40); } } });
+  S.prevLeaving = leaving;
+  // list full / free again (for people who are not on it)
+  const mine = myState(d, vm); const onList = mine && (mine.status === 'active' || mine.status === 'leaving');
+  if (S.prevFull != null && S.prevFull !== vm.listFull && d.user && !onList && !vm.played) toast(vm.listFull ? 'The list is full now, including the bench.' : 'A place is free again.', { ms: 4000 });
+  S.prevFull = vm.listFull;
+  // what happened to you
+  if (mine && !mine.pending) { noticeMine(S.myPrev, mine); S.myPrev = mine; }
+  else if (!mine) S.myPrev = null;
+}
+function noticeMine(prev, cur) {
+  if (!prev || prev.sid !== cur.sid || prev.uid !== cur.uid) return;
+  const act = S.selfAction && Date.now() - S.selfAction.at < 10000 ? S.selfAction.type : null;
+  const a = prev.status, b = cur.status; const was = a === 'active' || a === 'leaving', is = b === 'active' || b === 'leaving';
+  let msg = null, vib = false, flash = false;
+  if (!was && is) { msg = cur.bench ? "You're on the bench · " + cur.pos + '. You move up when someone leaves.' : "You're in · " + cur.pos + '.'; vib = true; flash = true; }
+  else if (was && !is) {
+    if (b === 'removed') { msg = 'The organizer took you off the list.'; vib = true; }
+    else if (act === 'leave') msg = 'You left the list.';
+    else { msg = 'An organizer let you leave. You are off the list now.'; vib = true; }
+  } else if (was && is) {
+    if (a === 'active' && b === 'leaving') msg = act === 'request' ? 'Request sent. An organizer will confirm it.' : 'Leave requested.';
+    else if (a === 'leaving' && b === 'active') { msg = act === 'cancel' ? "You're staying on the list." : 'An organizer kept you on the list.'; vib = act !== 'cancel'; }
+    if (prev.bench && !cur.bench) { msg = "You moved up: you're in · " + cur.pos + '.'; vib = true; flash = true; }
+    else if (!prev.bench && cur.bench && cur.idx >= 0) { msg = "You're on the bench now · " + cur.pos + '.'; flash = true; }
+    else if (cur.idx >= 0 && prev.idx > cur.idx) flash = true;
+    if (prev.paid !== cur.paid) { toast(cur.paid ? "You're marked as paid. Thanks!" : 'Your payment mark was removed.', { ms: 4000 }); vib = true; }
+  }
+  if (msg) toast(msg, { ms: 4000 }); if (vib) buzz([40, 60, 40]); if (flash) S.flashMe = Date.now();
+  if (act && (msg || prev.status !== cur.status)) S.selfAction = null;
+}
+function titleFor(vm) {
+  const base = S.cfg.title || 'Volleyball'; const ev = vm.event; if (!ev) return base;
+  let state = '';
+  const mine = S.data.user ? myState(S.data, vm) : null;
+  if (vm.played) state = 'Played';
+  else if (mine && (mine.status === 'active' || mine.status === 'leaving') && mine.pos) state = mine.pos;
+  else if (!signupsOpen(ev)) { const o = opensAtDate(ev); state = o ? 'Opens ' + (o.toDateString() === new Date().toDateString() ? pad(o.getHours()) + ':' + pad(o.getMinutes()) : fmtWhen(o)) : 'Not open'; }
+  else state = vm.listFull ? 'Full' : (vm.attendees.length >= vm.capacity ? 'Bench open' : 'Open');
+  return state + ' · ' + base;
+}
+function recentHTML(vm) {
+  const t = now(); const ev = [];
+  (S.data.signups || []).forEach(x => {
+    if (x.sessionId !== vm.eventId || x.pending) return;
+    if ((x.status === 'active' || x.status === 'leaving') && x.createdAt && t - x.createdAt < 15 * 60e3) ev.push({ at: x.createdAt, text: normName(x.name) + ' joined' });
+    if (x.status === 'left' && x.leftAt && t - x.leftAt < 15 * 60e3) ev.push({ at: x.leftAt, text: normName(x.name) + ' left' });
+  });
+  if (!ev.length) return '';
+  ev.sort((a, b) => b.at - a.at);
+  return '<div class="recent"><span>Recent:</span>' + ev.slice(0, 3).map(e => '<span>' + esc(e.text) + ' · ' + esc(ago(t - e.at)) + '</span>').join('') + '</div>';
+}
 /* ================= helpers for views ================= */
 let toastTimer = null;
-function toast(msg) { let t = $('#vb-toast'); if (!t) { t = document.createElement('div'); t.id = 'vb-toast'; t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); } t.textContent = msg; t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2600); }
+function toast(msg, opts) {
+  const o = opts || {}; let t = $('#vb-toast'); if (!t) { t = document.createElement('div'); t.id = 'vb-toast'; t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+  t.textContent = msg; t.classList.toggle('err', !!o.err); t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), o.ms || (o.err ? 6000 : 2600));
+}
+// A short buzz on phones for things that happen to you (ignored where unsupported).
+function buzz(pattern) { try { if (navigator.vibrate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(pattern || 40); } catch (e) {} }
+// Buttons whose action writes to the server show a waiting label and refuse double taps until the write settles.
+const BUSY_LABEL = { 'join': 'Saving…', 'leave-yes': 'Sending…', 'leave-cancel': 'Saving…', 'leave-approve': 'Saving…', 'leave-decline': 'Saving…', 'add-player': 'Adding…', 'ev-update': 'Saving…', 'ev-new-yes': 'Starting…', 'remove-yes': 'Removing…', 'done-yes': 'Saving…', 'reopen': 'Saving…', 'allpaid-yes': 'Saving…', 'roster-save': 'Saving…', 'account-rename': 'Saving…', 'account-password': 'Saving…', 'account-forgot': 'Sending…', 'auth-reset': 'Sending…', 'auth-login': 'Logging in…', 'auth-register': 'Creating…', 'auth-google': 'Opening Google…', 'profile-save': 'Saving…', 'setup-save': 'Saving…', 'clear-yes': 'Resetting…', 'skill-set': null };
+function busyKey(el) { return el.dataset.act + '|' + (el.dataset.key || el.dataset.id || ''); }
+function applyBusy() {
+  document.querySelectorAll('[data-busy]').forEach(el => { if (!S.busy.has(el.dataset.busy)) { if (el.dataset.busyText != null) el.textContent = el.dataset.busyText; el.disabled = el.dataset.busyWas === '1'; delete el.dataset.busy; delete el.dataset.busyText; delete el.dataset.busyWas; } });
+  S.busy.forEach((label, k) => {
+    const i = k.indexOf('|'); const act = k.slice(0, i), key = k.slice(i + 1);
+    const sel = key ? '[data-act="' + act + '"][data-key="' + key + '"], [data-act="' + act + '"][data-id="' + key + '"]' : '[data-act="' + act + '"]';
+    document.querySelectorAll(sel).forEach(el => { if (el.dataset.busy) return; el.dataset.busy = k; el.dataset.busyWas = el.disabled ? '1' : '0'; el.disabled = true; if (label && el.tagName === 'BUTTON') { el.dataset.busyText = el.textContent; el.textContent = label; } });
+  });
+}
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); toast('Copied'); return; } catch (e) {}
   try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); toast(ok ? 'Copied' : 'Select the text and copy it manually'); } catch (e) { toast('Select the text and copy it manually'); }
@@ -1053,13 +1149,17 @@ function statusText() {
   if (d.status === 'error') return d.error || 'Something went wrong with Firebase.';
   if (d.authError) return d.authError;
   if (d.status === 'connecting') return 'Connecting…';
-  if (d.status === 'offline') return 'Offline · showing the last data · ' + APP_VERSION;
-  return 'Live · ' + APP_VERSION;
+  const last = S.lastChangeAt ? ' · last change ' + ago(Date.now() - S.lastChangeAt) : '';
+  if (d.status === 'offline' || !S.online) return 'Offline · showing the last data · ' + APP_VERSION + last;
+  return 'Live · ' + APP_VERSION + last;
 }
 function paintStatus() { const el = $('#statusText'); if (el) el.textContent = statusText(); }
 function statusHTML(vm) {
   const d = S.data; const bad = d.status === 'error' || !!d.authError;
-  return '<div class="status' + (bad ? ' bad' : '') + '"><span class="dotlive ' + (d.mode === 'local' ? 'demo' : d.status) + '"></span><span class="sp" id="statusText"></span>' + accountHTML() + '</div>';
+  const offline = d.mode !== 'local' && (!S.online || d.status === 'offline');
+  return '<div class="status' + (bad ? ' bad' : '') + '"><span class="dotlive ' + (d.mode === 'local' ? 'demo' : (offline ? 'offline' : d.status)) + '"></span><span class="sp" id="statusText"></span>' + accountHTML() + '</div>' +
+    (offline ? '<div class="offline"><span>You\'re offline. The list may be outdated; changes are sent when you\'re back online.</span><button type="button" class="btn xs ghost" data-act="reload">Refresh</button></div>' : '') +
+    (S.err ? '<div class="note bad banner"><span>' + esc(S.err.text) + '</span><button type="button" class="link" data-act="err-dismiss">Dismiss</button></div>' : '');
 }
 function examplesHTML() {
   if (S.data.mode !== 'local' || !S.data.example) return '';
@@ -1169,7 +1269,7 @@ function meHTML(vm) {
   else if (removed) btn = '<div class="note">The organizer took you off this session\'s list. Message them if that\'s a mistake.</div>';
   else if (benchFull) btn = '<button type="button" class="btn big" disabled>The list is full</button>';
   else if (closed) btn = '<button type="button" class="btn big" disabled>Join button appears when it opens</button><p class="small muted">You\'re logged in as ' + esc(myName) + '. Keep this page open; it switches to the Join button by itself.</p>';
-  else btn = '<button type="button" class="btn big" data-act="join"' + (ui.joining ? ' disabled' : '') + '>' + (ui.joining ? 'Saving…' : (full ? 'Put me on the bench' : 'Join as ' + esc(myName))) + '</button>';
+  else btn = '<button type="button" class="btn big' + (S.pulseUntil && Date.now() < S.pulseUntil ? ' pulse' : '') + '" data-act="join"' + (ui.joining ? ' disabled' : '') + '>' + (ui.joining ? 'Saving…' : (full ? 'Put me on the bench' : 'Join as ' + esc(myName))) + '</button>';
   return '<section class="card"><div class="stack"><div>' + head + '</div>' + (ui.joinErr ? '<div class="note bad">' + esc(ui.joinErr) + '</div>' : '') + btn + calendarHTML(ev) + '</div></section>';
 }
 function rowHTML(p, label, vm, benchRow) {
@@ -1182,7 +1282,10 @@ function rowHTML(p, label, vm, benchRow) {
     right.push('<label class="chk"><input type="checkbox" data-act="paid-toggle" data-key="' + esc(p.key) + '"' + (p.paid ? ' checked' : '') + '> paid</label>');
     if (!p.leaving) right.push(U().removeConfirm === p.key ? '<button type="button" class="btn xs danger" data-act="remove-yes" data-key="' + esc(p.key) + '">Remove</button><button type="button" class="btn xs ghost" data-act="remove-no">Keep</button>' : '<button type="button" class="btn xs ghost" data-act="remove-ask" data-key="' + esc(p.key) + '" title="Remove from list">×</button>');
   } else if (p.pending) right.push('<span class="pill pend">pending</span>');
-  return '<div class="row' + (p.pending ? ' pending' : '') + (p.leaving ? ' leaving' : '') + '"><div class="pos">' + label + '</div><div class="who"><div class="n">' + esc(p.name) + (p.guestOf && vm.people.get(p.guestOf) ? ' <span class="muted small">· guest of ' + esc(vm.people.get(p.guestOf).name) + '</span>' : '') + '</div>' + (org && p.email ? '<div class="e">' + esc(p.email) + '</div>' : '') + ((p.ts || p.pending) ? '<div class="t">' + (p.pending ? 'saving…' : 'joined ' + joinStamp(p)) + '</div>' : '') + (p.leaving && !org ? '<div class="t leaving">wants to leave · waiting for an organizer</div>' : '') + '</div><div class="right">' + right.join('') + '</div>' +
+  // highlights are time-based, so repeated renders of the same data keep them stable
+  const was = S.posMap.get(p.key); if (was !== undefined && was !== String(label)) S.posChangedAt.set(p.key, Date.now()); S.posMap.set(p.key, String(label));
+  const fresh = !p.pending && p.tsMs && now() - p.tsMs < 20000; const moved = S.posChangedAt.has(p.key) && Date.now() - S.posChangedAt.get(p.key) < 2500; const flash = me && S.flashMe && Date.now() - S.flashMe < 2500;
+  return '<div class="row' + (p.pending ? ' pending' : '') + (p.leaving ? ' leaving' : '') + (fresh ? ' new' : '') + (moved || flash ? ' moved' : '') + '"><div class="pos">' + label + '</div><div class="who"><div class="n">' + esc(p.name) + (p.guestOf && vm.people.get(p.guestOf) ? ' <span class="muted small">· guest of ' + esc(vm.people.get(p.guestOf).name) + '</span>' : '') + '</div>' + (org && p.email ? '<div class="e">' + esc(p.email) + '</div>' : '') + ((p.ts || p.pending) ? '<div class="t">' + (p.pending ? 'saving…' : 'joined ' + joinStamp(p)) + '</div>' : '') + (p.leaving && !org ? '<div class="t leaving">wants to leave · waiting for an organizer</div>' : '') + '</div><div class="right">' + right.join('') + '</div>' +
     (p.leaving && org ? '<div class="decide"><span>Wants to leave.</span><button type="button" class="btn xs" data-act="leave-approve" data-key="' + esc(p.key) + '">Let go</button><button type="button" class="btn xs ghost" data-act="leave-decline" data-key="' + esc(p.key) + '">Keep on the list</button></div>' : '') + '</div>';
 }
 function listsHTML(vm) {
@@ -1193,7 +1296,7 @@ function listsHTML(vm) {
   const pend = vm.attendees.filter(p => p.leaving);
   const notice = isOrg() && pend.length ? '<div class="note warn" style="margin-bottom:12px"><b>' + pend.length + (pend.length === 1 ? ' person wants' : ' people want') + ' to leave:</b> ' + esc(pend.map(p => p.name).join(', ')) + '. Use "Let go" or "Keep" next to the name. More than 3 hours before the start, leaving needs an organizer\'s okay; closer to it people leave by themselves.</div>' : '';
   return notice + '<section><h2 class="sec">Playing <span class="cnt">' + vm.playing.length + ' of ' + vm.capacity + '</span></h2><div class="list">' + play + '</div>' + add + '</section>' +
-    '<section class="bench"><h2 class="sec"><span class="dot"></span>Bench <span class="cnt">' + vm.bench.length + (vm.benchCap != null ? ' of ' + vm.benchCap : '') + '</span></h2><div class="list">' + (bench || '<div class="empty">Empty. Anyone who joins after the list is full lands here, in order.</div>') + '</div></section>';
+    '<section class="bench"><h2 class="sec"><span class="dot"></span>Bench <span class="cnt">' + vm.bench.length + (vm.benchCap != null ? ' of ' + vm.benchCap : '') + '</span></h2><div class="list">' + (bench || '<div class="empty">Empty. Anyone who joins after the list is full lands here, in order.</div>') + '</div>' + recentHTML(vm) + '</section>';
 }
 function attendanceStats(vm) {
   const sessions = vm.history.slice(); if (vm.played) sessions.push({ event: vm.event, attendees: vm.attendees.map(p => ({ name: p.name, paid: p.paid, noshow: !!p.noshow })) });
@@ -1248,8 +1351,9 @@ function eventFormHTML(vm) {
     '<div class="grid2"><div class="field"><label class="f" for="evOpensAt">Sign-ups open at <span class="muted">(optional)</span></label><input class="inp" id="evOpensAt" data-ui="evOpensAt" type="datetime-local" value="' + esc(ev.opensAt || '') + '"></div><div class="field"><label class="f" for="evDuration">Duration (minutes)</label><input class="inp" id="evDuration" data-ui="evDuration" type="number" min="30" max="600" step="15" inputmode="numeric" value="' + esc(ev.duration || 120) + '"></div></div>' +
     '<div class="field"><label class="f" for="evNote">Note for players (optional)</label><input class="inp" id="evNote" data-ui="evNote" value="' + esc(ev.note || '') + '" placeholder="Bring a white or dark shirt"></div>' +
     '<div class="small muted"><b id="capPreview">' + cap + '</b> players play; after that <span id="benchPreview">' + (bench == null ? 'anyone can wait on the bench' : 'up to <b>' + bench + '</b> wait on the bench') + '</span>. The courts (2v2 to 5v5) are chosen when you generate the roster.' + (ev.opensAt ? ' Joins before the opening time don\'t count.' : '') + '</div>' +
-    '<div class="actions">' + (cur ? '<button type="button" class="btn sm" data-act="ev-update">Update this session</button>' : '') +
-    (ui.newConfirm ? '<span class="small">Start a new session? The current list and payments move to Past sessions.</span><button type="button" class="btn sm danger" data-act="ev-new-yes">Start new</button><button type="button" class="btn sm ghost" data-act="ev-new-no">Cancel</button>' : '<button type="button" class="btn sm ' + (cur ? 'outline' : '') + '" data-act="ev-new-ask">' + (cur ? (vm.played ? 'Start the next session' : 'New session (resets the list)') : 'Start the session') + '</button>') +
+    (cap % 2 ? '<div class="note bad">An odd roster count (' + cap + ') can\'t be split into courts: teams need an even number. Use ' + (cap - 1) + ' or ' + (cap + 1) + '.</div>' : '') +
+    '<div class="actions">' + (cur ? '<button type="button" class="btn sm" data-act="ev-update"' + (!ui.evDirty || cap % 2 ? ' disabled' : '') + '>Update this session</button>' + (ui.evDirty ? '<span class="pill dirty">Unsaved changes</span>' : '') : '') +
+    (ui.newConfirm ? '<span class="small">Start a new session? The current list and payments move to Past sessions.</span><button type="button" class="btn sm danger" data-act="ev-new-yes"' + (cap % 2 ? ' disabled' : '') + '>Start new</button><button type="button" class="btn sm ghost" data-act="ev-new-no">Cancel</button>' : '<button type="button" class="btn sm ' + (cur ? 'outline' : '') + '" data-act="ev-new-ask"' + (cap % 2 ? ' disabled' : '') + '>' + (cur ? (vm.played ? 'Start the next session' : 'New session (resets the list)') : 'Start the session') + '</button>') +
     (cur || vm.history.length ? '<button type="button" class="btn sm ghost" data-act="ev-copy-last">Same as last time, +7 days</button>' : '') +
     '</div>' + (cur ? playedControlsHTML(vm) : '') + '</div>' + (cur && !vm.played ? announceHTML(vm) : '') + (cur ? paymentsHTML(vm) : '');
 }
@@ -1436,12 +1540,16 @@ function inputFocused() { const a = document.activeElement; const app = $('#app'
 function render() {
   if (!S.vm) S.vm = buildVM(S.data);
   syncEventForm();
+  const ev = S.vm.event; const openNow = ev && opensAtMs(ev) ? signupsOpen(ev) : undefined;
+  if (S.openState === false && openNow === true && !S.vm.played) { S.pulseUntil = Date.now() + 2500; toast('Sign-ups are open!', { ms: 4000 }); buzz([60, 40, 60]); setTimeout(() => { S.lastHTML = ''; render(); }, 2600); }
   const html = viewHTML();
-  if (html === S.lastHTML) { paintStatus(); return; }
+  const title = titleFor(S.vm); if (document.title !== title) document.title = title;
+  if (html === S.lastHTML) { paintStatus(); applyBusy(); S.openState = openNow; return; }
   const a = document.activeElement; const keep = inputFocused() && a.id ? { id: a.id, start: a.selectionStart, end: a.selectionEnd, y: window.scrollY } : null;
   S.renderPending = false; S.lastHTML = html; $('#app').innerHTML = html; paintStatus();
   if (keep) { const el = document.getElementById(keep.id); if (el) { try { el.focus({ preventScroll: true }); if (keep.start != null && el.setSelectionRange) el.setSelectionRange(keep.start, keep.end); } catch (e) {} window.scrollTo(0, keep.y); } }
-  S.openState = S.vm.event && opensAtMs(S.vm.event) ? signupsOpen(S.vm.event) : undefined;
+  applyBusy();
+  S.openState = openNow;
   S.leaveState = S.vm.event ? leaveIsFree(S.vm.event) : undefined;
 }
 function uiCap(e) { return Math.min(60, Math.max(0, parseInt(e && e.cap, 10) || 0)); }
@@ -1490,7 +1598,7 @@ const actions = {
     if (!name) { ui.joinErr = 'Your profile has no name yet.'; render(); return; }
     const clash = S.vm.attendees.find(p => nameKey(p.name) === nameKey(name));
     if (clash) { ui.joinErr = 'There is already a ' + clash.name + ' on the list. If that is you from another account, log in with that account instead; otherwise ask the organizer.'; render(); return; }
-    ui.joining = true; render();
+    ui.joining = true; S.selfAction = { type: 'join', at: Date.now() }; render();
     const openAt = opensAtMs(S.vm.event);
     for (let attempt = 0; attempt < 5; attempt++) {
       try { await B.join({ sessionId: S.vm.eventId, name }); break; }
@@ -1562,17 +1670,20 @@ const actions = {
   'leave-yes': async () => {
     U().leaveConfirm = false; const k = S.vm.myKey; const p = k && S.vm.people.get(k); if (!p) { render(); return; }
     const e = logEntryFor(p); const free = isOrg() || leaveIsFree(S.vm.event);
+    S.selfAction = { type: free ? 'leave' : 'request', at: Date.now() };
     if (!free) { await run(() => B.requestLeave(k, e), 'leave'); return; }
     try { await B.leave(k, withMoveUp(e, p)); }
     catch (x) {
       // the server did not consider it free (clock a few seconds off, start not stored yet): ask instead
-      if (/permission-denied/.test(String(x && x.code))) { const ok = await run(() => B.requestLeave(k, e).then(() => true), 'leave'); if (ok) toast('Sent as a request: an organizer has to confirm it.'); }
+      if (/permission-denied/.test(String(x && x.code))) { S.selfAction = { type: 'request', at: Date.now() }; await run(() => B.requestLeave(k, e), 'leave'); }
       else toast(S.data.mode === 'firebase' ? fbExplain(x, 'leave') : ((x && x.message) || 'Something went wrong'));
     }
   },
-  'leave-cancel': async () => { const k = S.vm.myKey; const p = k && S.vm.people.get(k); if (!p) return; await run(() => B.cancelLeave(k, logEntryFor(p)), 'leave'); },
+  'leave-cancel': async () => { const k = S.vm.myKey; const p = k && S.vm.people.get(k); if (!p) return; S.selfAction = { type: 'cancel', at: Date.now() }; await run(() => B.cancelLeave(k, logEntryFor(p)), 'leave'); },
   'leave-approve': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; const up = movesUpFor(p); const ok = await run(() => B.decideLeave(k, true, withMoveUp(logEntryFor(p), p)).then(() => true), 'org'); if (ok) toast(p.name + ' left the list' + (up ? ' · ' + up.name + ' moves up from the bench' : '')); },
-  'leave-decline': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.decideLeave(k, false, logEntryFor(p)), 'org'); },
+  'leave-decline': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; const ok = await run(() => B.decideLeave(k, false, logEntryFor(p)).then(() => true), 'org'); if (ok) toast(p.name + ' stays on the list.'); },
+  'err-dismiss': () => { S.err = null; S.lastHTML = ''; render(); },
+  'reload': () => { location.reload(); },
   'log-open': () => { const ui = U(); ui.logOpen = true; ui.lgQ = ''; if (ui.lgSession !== 'all' && !(S.data.sessions || []).some(s => s.id === ui.lgSession)) ui.lgSession = 'all'; B.watchLog(); window.scrollTo(0, 0); render(); },
   'log-close': () => { U().logOpen = false; B.unwatchLog(); render(); },
   'log-type': (el) => { U().lgType = el.dataset.t; render(); },
@@ -1580,16 +1691,16 @@ const actions = {
   'org-open': () => { U().orgOpen = true; render(); },
   'org-cancel': () => { U().orgOpen = false; render(); },
   'org-demo': async () => { if (B.openOrganizerDemo) await B.openOrganizerDemo(); U().orgOpen = false; U().evDirty = false; render(); },
-  'paid-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { paid: !p.paid }, logEntryFor(p, p.paid ? 'unpaid' : 'paid')), 'org'); },
+  'paid-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; const ok = await run(() => B.updateSignup(k, { paid: !p.paid }, logEntryFor(p, p.paid ? 'unpaid' : 'paid')).then(() => true), 'org'); if (ok) toast(p.name + (p.paid ? ': not paid' : ': paid ✓')); },
   'remove-ask': (el) => { U().removeConfirm = el.dataset.key; render(); },
   'remove-no': () => { U().removeConfirm = null; render(); },
-  'remove-yes': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); U().removeConfirm = null; if (!p) { render(); return; } const up = movesUpFor(p); const ok = await run(() => B.updateSignup(k, { status: 'removed' }, withMoveUp(logEntryFor(p, 'org-remove'), p)).then(() => true), 'org'); if (ok && up) toast(up.name + ' moves up from the bench'); },
+  'remove-yes': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); U().removeConfirm = null; if (!p) { render(); return; } const up = movesUpFor(p); const ok = await run(() => B.updateSignup(k, { status: 'removed' }, withMoveUp(logEntryFor(p, 'org-remove'), p)).then(() => true), 'org'); if (ok) toast(p.name + ' removed from the list' + (up ? ' · ' + up.name + ' moves up from the bench' : '')); },
   'add-player': async () => {
     const ui = U(); const name = normName(ui.addName).slice(0, 60); const email = normEmail(ui.addEmail);
     if (!name) { toast('Enter a name first.'); return; }
     if (!S.vm.eventId) { toast('Start a session first.'); return; }
     if (S.vm.attendees.some(p => p.name.toLowerCase() === name.toLowerCase())) { toast(name + ' is already on the list.'); return; }
-    ui.addName = ''; ui.addEmail = ''; await run(() => B.adminAdd({ sessionId: S.vm.eventId, name, email }), 'org');
+    ui.addName = ''; ui.addEmail = ''; const ok = await run(() => B.adminAdd({ sessionId: S.vm.eventId, name, email }).then(() => true), 'org'); if (ok) toast(name + ' added to the list.');
   },
   'ev-update': async () => { if (!S.vm.eventId) return; const f = eventFields(); U().evDirty = false; const diff = sessionDiff(S.vm.event, f); await run(() => B.updateSession(S.vm.eventId, f, { type: 'session-update', sessionId: S.vm.eventId, detail: diff || 'no visible change' }), 'org'); toast('Session updated'); },
   'ev-new-ask': () => { if (!S.vm.event) { actions['ev-new-yes'](); return; } U().newConfirm = true; render(); },
@@ -1689,8 +1800,15 @@ function init() {
   const app = $('#app');
   app.addEventListener('click', e => {
     const el = e.target.closest('[data-act]'); if (!el || el.tagName === 'INPUT') return;
-    const fn = actions[el.dataset.act]; if (fn) { if (el.tagName !== 'A') e.preventDefault(); fn(el); }
+    const act = el.dataset.act; const fn = actions[act]; if (!fn) return;
+    if (el.tagName !== 'A') e.preventDefault();
+    if (!(act in BUSY_LABEL)) { fn(el); return; }
+    const k = busyKey(el); if (S.busy.has(k)) return;
+    S.busy.set(k, BUSY_LABEL[act]); applyBusy();
+    Promise.resolve().then(() => fn(el)).catch(() => {}).then(() => { S.busy.delete(k); applyBusy(); });
   });
+  window.addEventListener('online', () => { S.online = true; S.lastHTML = ''; render(); toast('Back online.'); });
+  window.addEventListener('offline', () => { S.online = false; S.lastHTML = ''; render(); });
   app.addEventListener('change', e => {
     const el = e.target;
     if (el.dataset && (el.dataset.act === 'paid-toggle' || el.dataset.act === 'noshow-toggle' || el.dataset.act === 'noshow-sel')) { actions[el.dataset.act](el); return; }
@@ -1738,7 +1856,7 @@ async function checkForUpdate() {
 function handleInput(el) {
   if (!el || !el.dataset || !el.dataset.ui) return;
   const k = el.dataset.ui; const ui = U(); const v = el.type === 'checkbox' ? el.checked : el.value;
-  if (k.startsWith('ev')) { const f = k.slice(2, 3).toLowerCase() + k.slice(3); ui.ev = ui.ev || {}; ui.ev[f] = v; ui.evDirty = true; const cp = $('#capPreview'); if (cp) cp.textContent = uiCap(ui.ev); const bp = $('#benchPreview'); if (bp) { const b = uiBench(ui.ev); bp.innerHTML = b == null ? 'anyone can wait on the bench' : 'up to <b>' + b + '</b> wait on the bench'; } return; }
+  if (k.startsWith('ev')) { const f = k.slice(2, 3).toLowerCase() + k.slice(3); ui.ev = ui.ev || {}; ui.ev[f] = v; const wasDirty = ui.evDirty; ui.evDirty = true; if (!wasDirty || k === 'evCap' || k === 'evBench') { render(); return; } const cp = $('#capPreview'); if (cp) cp.textContent = uiCap(ui.ev); const bp = $('#benchPreview'); if (bp) { const b = uiBench(ui.ev); bp.innerHTML = b == null ? 'anyone can wait on the bench' : 'up to <b>' + b + '</b> wait on the bench'; } return; }
   if (/^rc\dv\d$/.test(k)) { const r = ui.roster; r.rc = r.rc || countsOf([]); r.rc[k.slice(2)] = Math.min(12, Math.max(0, parseInt(v, 10) || 0)); render(); return; }
   if (k === 'pairsTogether' || k === 'pairsApart') {
     S.pairs[k === 'pairsTogether' ? 'together' : 'apart'] = v; clearTimeout(pairsTimer);
