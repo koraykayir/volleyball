@@ -17,6 +17,12 @@ service cloud.firestore {
       return s.status == 'open' && (s.get('opensAtTs', null) == null || request.time >= s.opensAtTs);
     }
     function validName(n) { return n is string && n.size() > 0 && n.size() <= 60 && !n.matches('.*/.*'); }
+    // Leaving without an organizer: only in the last 3 hours before the start (or later). The start is
+    // stored by the organizer as startsAtTs; without it nobody can leave on their own.
+    function leaveIsFree(id) {
+      let s = sessionData(id);
+      return s.get('startsAtTs', null) != null && request.time >= s.startsAtTs - duration.value(3, 'h');
+    }
 
     // Organizer list: maintained by hand in the console. Each person may only check their own entry.
     match /admins/{adminEmail} {
@@ -93,8 +99,9 @@ service cloud.firestore {
     }
 
     // Sign-ups: anyone can read the list. A logged-in player with a profile adds themselves
-    // (one entry per session, ID = sessionId_uid) while the session is open, can leave,
-    // and can rejoin at the back of the queue. Organizers can change anything.
+    // (one entry per session, ID = sessionId_uid) while the session is open. Leaving is immediate in the
+    // last 3 hours before the start; before that it is a request ('leaving') that an organizer confirms.
+    // A player can take a request back and can rejoin at the back of the queue. Organizers can change anything.
     match /signups/{id} {
       allow read: if true;
       allow create: if isAdmin() || (signedIn()
@@ -115,11 +122,23 @@ service cloud.firestore {
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
             && request.resource.data.name == profileAfter(request.auth.uid).name)
           ||
-          // leave
+          // leave right away (last 3 hours before the start)
           (resource.data.status == 'active'
             && sessionData(resource.data.sessionId).status == 'open'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'leftAt'])
-            && request.resource.data.status == 'left' && request.resource.data.leftAt == request.time)
+            && request.resource.data.status == 'left' && request.resource.data.leftAt == request.time
+            && leaveIsFree(resource.data.sessionId))
+          ||
+          // ask to leave (an organizer decides)
+          (resource.data.status == 'active'
+            && sessionData(resource.data.sessionId).status == 'open'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'leaveRequestedAt'])
+            && request.resource.data.status == 'leaving' && request.resource.data.leaveRequestedAt == request.time)
+          ||
+          // take the request back
+          (resource.data.status == 'leaving'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+            && request.resource.data.status == 'active')
           ||
           // rejoin: goes to the back of the queue
           (resource.data.status == 'left'
@@ -129,6 +148,27 @@ service cloud.firestore {
             && sessionOpen(resource.data.sessionId))
         ));
       allow delete: if isAdmin();
+    }
+
+    // Activity log: every join, leave and change, written in the same batch as the change itself.
+    // Organizers read it. A player may only log things about themselves, and only when the same
+    // write really made that change (checked against the state after the batch).
+    match /log/{id} {
+      allow read: if isAdmin();
+      allow update, delete: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['sessionId', 'at', 'type', 'name', 'uid', 'key', 'detail', 'by', 'byName'])
+        && request.resource.data.at == request.time
+        && request.resource.data.by == request.auth.uid
+        && (isAdmin() || (request.resource.data.uid == request.auth.uid && selfLogOk(request.resource.data)));
+    }
+    function signupAfter(sid) { return getAfter(/databases/$(database)/documents/signups/$(sid + '_' + request.auth.uid)).data; }
+    function selfLogOk(e) {
+      return (e.type in ['join', 'rejoin'] && signupAfter(e.sessionId).status == 'active')
+        || (e.type == 'leave' && signupAfter(e.sessionId).status == 'left')
+        || (e.type == 'leave-request' && signupAfter(e.sessionId).status == 'leaving')
+        || (e.type == 'leave-cancel' && signupAfter(e.sessionId).status == 'active')
+        || (e.type in ['register', 'rename'] && profileAfter(request.auth.uid).name == e.name);
     }
   }
 }

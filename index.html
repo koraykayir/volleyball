@@ -105,6 +105,15 @@ a{color:var(--court)}
 .pill.ok{background:var(--ok-soft); color:var(--ok)}
 .pill.pend{background:transparent; border:1px dashed var(--line)}
 .pill.you{background:var(--court); color:var(--court-ink)}
+.pill.warn{background:var(--zone-soft); color:var(--zone)}
+.row .t.leaving{color:var(--zone)}
+.row .decide{grid-column:2 / -1; display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--zone); padding-top:2px}
+.loglist{display:flex; flex-direction:column}
+.lrow{display:grid; grid-template-columns:auto 1fr; gap:2px 12px; padding:8px 0; border-bottom:1px solid var(--line); font-size:14px; align-items:baseline}
+.lrow:last-child{border-bottom:0}
+.lrow .lt{color:var(--muted); font-size:12.5px; font-variant-numeric:tabular-nums; white-space:nowrap}
+.lrow .ls{grid-column:2; color:var(--muted); font-size:12.5px}
+select.inp{appearance:auto}
 .chk{display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); cursor:pointer; user-select:none}
 .chk input{width:18px; height:18px; accent-color:var(--ok); margin:0; cursor:pointer}
 .empty{padding:14px 0; color:var(--muted); font-size:14px}
@@ -273,14 +282,16 @@ function courtSummary(ev) {
 /* ================= data model =================
    Firestore layout (same shape in demo mode):
    config/app            { title, organizer, pageUrl, currentSessionId }
-   sessions/{id}         { date, time, place, courts, format, courtsList, price, note, opensAt, opensAtTs, duration,
+   sessions/{id}         { date, time, place, courts, format, courtsList, price, note, opensAt, opensAtTs, startsAtTs, duration,
                            status: 'open'|'played', playedAt, roster: {t, b}|null, summary: {attendees}|null, createdAt }
-   signups/{auto}        { sessionId, name, uid, createdAt, status: 'active'|'left'|'removed', paid, noshow, guestOf, addedBy: 'self'|'organizer' }
+   signups/{auto}        { sessionId, name, uid, createdAt, status: 'active'|'leaving'|'left'|'removed', paid, noshow, guestOf, addedBy: 'self'|'organizer',
+                           leaveRequestedAt, leaveDeclinedAt, leftAt }      'leaving' = asked to leave, waiting for an organizer
+   log/{auto}            { sessionId, at, type, name, uid, key, detail, by, byName }   every join, leave and change; organizers read
    contacts/{signupId}   { email, sessionId }        organizers only
    ratings/{nameLower}   { name, r }  ratings/_pairs { together, apart }   organizers only
    admins/{email}        added by hand in the Firebase console */
-function emptyData(mode) { return { mode, clockOffset: 0, clockSynced: false, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false }; }
-function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, duration: s.duration || 120 }; }
+function emptyData(mode) { return { mode, clockOffset: 0, clockSynced: false, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false, log: null, logLoaded: false }; }
+function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, startsAtMs: s.startsAtMs || 0, duration: s.duration || 120 }; }
 // Current time as the server sees it (offset measured against Firestore once logged in; device clock otherwise).
 function now() { return Date.now() + ((S.data && S.data.clockOffset) || 0); }
 // Order is decided by the server clock: Firestore stamps each sign-up on arrival (rules reject any other time).
@@ -304,7 +315,7 @@ function buildVM(d) {
   const uid = d.user && d.user.uid;
   const sign = cur ? (d.signups || []).filter(x => x.sessionId === cur.id).sort(serverOrder) : [];
   sign.forEach(x => {
-    st.people.set(x.id, { key: x.id, tsMs: x.createdAt || 0, name: normName(x.name), email: (d.contacts || {})[x.id] || (x.addedBy === 'self' && (d.players || {})[x.uid] ? (d.players[x.uid].email || '') : ''), ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active', paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
+    st.people.set(x.id, { key: x.id, tsMs: x.createdAt || 0, name: normName(x.name), email: (d.contacts || {})[x.id] || (x.addedBy === 'self' && (d.players || {})[x.uid] ? (d.players[x.uid].email || '') : ''), ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active' || x.status === 'leaving', leaving: x.status === 'leaving', declined: !!(x.status === 'active' && x.leaveDeclinedAt && (!x.leaveRequestedAt || x.leaveDeclinedAt >= x.leaveRequestedAt)), paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
   });
   st.attendees = sign.map(x => st.people.get(x.id)).filter(p => p.active);
   const mine = uid ? st.attendees.find(p => p.uid === uid && !p.guestOf && p.addedBy !== 'organizer') : null;
@@ -329,7 +340,8 @@ const S = {
     addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false,
     ev: null, evDirty: false,
     roster: { mode: 'closed', sel: null, id: null }, ratingsOpen: false,
-    setupOpen: false, suTitle: '', suOrganizer: '', suPageUrl: '', suSaved: false
+    setupOpen: false, suTitle: '', suOrganizer: '', suPageUrl: '', suSaved: false,
+    logOpen: false, lgSession: 'all', lgType: 'all', lgQ: ''
   }
 };
 let pairsTimer = null;
@@ -347,6 +359,9 @@ function onData(d) {
   if (d.user) { U().authOpen = false; U().auPass = ''; }
   if (!pairsTimer) S.pairs = Object.assign({ together: '', apart: '' }, d.pairs || {});
   S.vm = buildVM(d); render();
+  // Sessions from before v12 have no stored start time; the first organizer to open the page adds it (needed for the 3-hour leave window).
+  const ev = S.vm.event;
+  if (d.mode === 'firebase' && isOrg() && ev && ev.date && !ev.startsAtMs && S.vm.eventId && S.backfilled !== S.vm.eventId) { S.backfilled = S.vm.eventId; B.updateSession(S.vm.eventId, { date: ev.date, time: ev.time }).catch(() => {}); }
 }
 
 function ratingOf(name) { return S.skills[String(name).toLowerCase()] || 3; }
@@ -395,7 +410,7 @@ function balanceTeams(ctx) {
 
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v11';
+const APP_VERSION = 'v12';
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
@@ -438,19 +453,25 @@ function firebaseBackend(conf) {
   const ms = v => v && typeof v.toMillis === 'function' ? v.toMillis() : (typeof v === 'number' ? v : null);
   const readFail = e => { d.status = 'error'; d.error = fbExplain(e, 'read'); emit(); };
   const opensTs = s => { const t = s ? new Date(s) : null; return t && !isNaN(t) ? firebase.firestore.Timestamp.fromDate(t) : null; };
-  const withTs = f => { const o = Object.assign({}, f); if ('opensAt' in o) o.opensAtTs = opensTs(o.opensAt); return o; };
+  const startsTs = (date, time) => { if (!date) return null; const t = new Date(date + 'T' + (time || '12:00')); return isNaN(t) ? null : firebase.firestore.Timestamp.fromDate(t); };
+  const withTs = f => { const o = Object.assign({}, f); if ('opensAt' in o) o.opensAtTs = opensTs(o.opensAt); if ('date' in o || 'time' in o) o.startsAtTs = startsTs(o.date, o.time); return o; };
+  // Activity log: one entry per change, written in the same batch as the change itself.
+  const whoName = () => (d.profile && d.profile.name) || (auth.currentUser && auth.currentUser.displayName) || '';
+  const addLog = (b, e) => { const u = auth.currentUser; if (!u || !e) return; b.set(fs.collection('log').doc(), { sessionId: e.sessionId || '', type: e.type, name: e.name || '', uid: e.uid || '', key: e.key || '', detail: e.detail || '', by: u.uid, byName: e.byName || whoName(), at: TS() }); };
+  const one = (fn, e) => { const b = fs.batch(); fn(b); addLog(b, e); return b.commit(); };
+  let unsubLog = null;
   function resubSignups() {
     const sid = d.config.currentSessionId || null; if (sid === subSid) return;
     subSid = sid; if (unsubSign) unsubSign(); unsubSign = null; d.signups = [];
     if (!sid) return;
     unsubSign = fs.collection('signups').where('sessionId', '==', sid).onSnapshot({ includeMetadataChanges: true }, snap => {
-      d.signups = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'none' }) || {}; const c = v.createdAt; return Object.assign({}, v, { id: x.id, createdAt: ms(c), createdSub: c && typeof c.nanoseconds === 'number' ? c.nanoseconds % 1000000 : 0, pending: !!x.metadata.hasPendingWrites || !c }); });
+      d.signups = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'none' }) || {}; const c = v.createdAt; return Object.assign({}, v, { id: x.id, createdAt: ms(c), createdSub: c && typeof c.nanoseconds === 'number' ? c.nanoseconds % 1000000 : 0, leaveRequestedAt: ms(v.leaveRequestedAt), leaveDeclinedAt: ms(v.leaveDeclinedAt), leftAt: ms(v.leftAt), pending: !!x.metadata.hasPendingWrites || !c }); });
       emit();
     }, readFail);
   }
   function adminSubs() {
     adminUnsubs.forEach(f => f()); adminUnsubs = [];
-    if (!(d.user && d.user.isAdmin)) { d.contacts = {}; d.ratings = {}; d.players = {}; d.pairs = { together: '', apart: '' }; return; }
+    if (!(d.user && d.user.isAdmin)) { d.contacts = {}; d.ratings = {}; d.players = {}; d.pairs = { together: '', apart: '' }; if (unsubLog) { unsubLog(); unsubLog = null; } d.log = null; d.logLoaded = false; return; }
     adminUnsubs.push(fs.collection('contacts').onSnapshot(snap => { const c = {}; snap.docs.forEach(x => { c[x.id] = (x.data() || {}).email || ''; }); d.contacts = c; emit(); }, () => {}));
     adminUnsubs.push(fs.collection('players').onSnapshot(snap => { const p = {}; snap.docs.forEach(x => { p[x.id] = x.data() || {}; }); d.players = p; emit(); }, () => {}));
     adminUnsubs.push(fs.collection('ratings').onSnapshot(snap => {
@@ -490,6 +511,7 @@ function firebaseBackend(conf) {
     const b = fs.batch();
     b.set(fs.collection('players').doc(u.uid), { name, level, email: u.email || '', createdAt: TS() });
     b.set(fs.collection('names').doc(nameKey(name)), { uid: u.uid, name });
+    addLog(b, { type: 'register', name, uid: u.uid, byName: name, detail: 'level ' + level });
     try { await b.commit(); } catch (e) { if (/permission-denied/.test(String(e && e.code))) throw nameTaken(); throw e; }
   }
   // Accounts created before names were unique: claim their name once, so nobody else can register it.
@@ -512,7 +534,7 @@ function firebaseBackend(conf) {
       fs = firebase.firestore(); auth = firebase.auth();
       fs.collection('config').doc('app').onSnapshot(s => { d.config = s.exists ? (s.data() || {}) : {}; d.configLoaded = true; resubSignups(); emit(); }, readFail);
       fs.collection('sessions').onSnapshot({ includeMetadataChanges: true }, snap => {
-        d.sessions = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'estimate' }) || {}; const o = Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), playedAt: ms(v.playedAt), opensAtMs: ms(v.opensAtTs) || 0 }); delete o.opensAtTs; return o; });
+        d.sessions = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'estimate' }) || {}; const o = Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), playedAt: ms(v.playedAt), opensAtMs: ms(v.opensAtTs) || 0, startsAtMs: ms(v.startsAtTs) || 0 }); delete o.opensAtTs; delete o.startsAtTs; return o; });
         d.sessionsLoaded = true; d.status = snap.metadata.fromCache ? 'offline' : 'live'; d.error = ''; emit();
       }, readFail);
       auth.onAuthStateChanged(u => { setUser(u); });
@@ -522,33 +544,52 @@ function firebaseBackend(conf) {
     async join({ sessionId, name }) {
       const u = me(); const ref = fs.collection('signups').doc(sessionId + '_' + u.uid);
       const existing = (d.signups || []).find(x => x.id === ref.id);
-      if (existing && existing.status === 'active') return ref.id; // already on the list: one entry per account
-      if (existing && existing.status === 'left') await ref.update({ status: 'active', createdAt: TS(), name });
-      else await ref.set({ sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' });
+      if (existing && (existing.status === 'active' || existing.status === 'leaving')) return ref.id; // already on the list: one entry per account
+      const e = { sessionId, name, uid: u.uid, key: ref.id };
+      if (existing && existing.status === 'left') await one(b => b.update(ref, { status: 'active', createdAt: TS(), name }), Object.assign(e, { type: 'rejoin' }));
+      else await one(b => b.set(ref, { sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' }), Object.assign(e, { type: 'join' }));
       return ref.id;
     },
     async adminAdd({ sessionId, name, email }) {
       const u = me(); const ref = fs.collection('signups').doc(); const b = fs.batch();
       b.set(ref, { sessionId, name, uid: u.uid, createdAt: TS(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'organizer' });
       if (email) b.set(fs.collection('contacts').doc(ref.id), { email, sessionId });
+      addLog(b, { type: 'org-add', sessionId, name, key: ref.id });
       await b.commit(); return ref.id;
     },
-    leave(k) { return fs.collection('signups').doc(k).update({ status: 'left', leftAt: TS() }); },
-    updateSignup(k, patch) { return fs.collection('signups').doc(k).update(patch); },
-    async updateSignups(keys, patch) { const b = fs.batch(); keys.forEach(k => b.update(fs.collection('signups').doc(k), patch)); await b.commit(); },
-    async createSession({ id, fields, prev }) {
+    // Leaving. `e` describes the entry for the activity log: { sessionId, name, uid, key }.
+    leave(k, e) { return one(b => b.update(fs.collection('signups').doc(k), { status: 'left', leftAt: TS() }), Object.assign({}, e, { type: 'leave' })); },
+    requestLeave(k, e) { return one(b => b.update(fs.collection('signups').doc(k), { status: 'leaving', leaveRequestedAt: TS() }), Object.assign({}, e, { type: 'leave-request' })); },
+    cancelLeave(k, e) { return one(b => b.update(fs.collection('signups').doc(k), { status: 'active' }), Object.assign({}, e, { type: 'leave-cancel' })); },
+    decideLeave(k, approve, e) {
+      return approve ? one(b => b.update(fs.collection('signups').doc(k), { status: 'left', leftAt: TS() }), Object.assign({}, e, { type: 'leave-approved' }))
+        : one(b => b.update(fs.collection('signups').doc(k), { status: 'active', leaveDeclinedAt: TS() }), Object.assign({}, e, { type: 'leave-declined' }));
+    },
+    updateSignup(k, patch, e) { return e ? one(b => b.update(fs.collection('signups').doc(k), patch), e) : fs.collection('signups').doc(k).update(patch); },
+    async updateSignups(keys, patch, logs) { const b = fs.batch(); keys.forEach(k => b.update(fs.collection('signups').doc(k), patch)); (logs || []).forEach(e => addLog(b, e)); await b.commit(); },
+    async createSession({ id, fields, prev }, e) {
       const b = fs.batch();
       b.set(fs.collection('sessions').doc(id), Object.assign(withTs(fields), { status: 'open', playedAt: null, roster: null, summary: null, createdAt: TS() }));
       if (prev) b.update(fs.collection('sessions').doc(prev.id), { summary: prev.summary });
       b.set(fs.collection('config').doc('app'), { currentSessionId: id }, { merge: true });
+      addLog(b, e);
       await b.commit();
     },
-    updateSession(sid, fields) { return fs.collection('sessions').doc(sid).update(withTs(fields)); },
-    markPlayed(sid, summary) { return fs.collection('sessions').doc(sid).update({ status: 'played', playedAt: TS(), summary }); },
-    reopen(sid) { return fs.collection('sessions').doc(sid).update({ status: 'open', playedAt: null }); },
+    updateSession(sid, fields, e) { return e ? one(b => b.update(fs.collection('sessions').doc(sid), withTs(fields)), e) : fs.collection('sessions').doc(sid).update(withTs(fields)); },
+    markPlayed(sid, summary, e) { return one(b => b.update(fs.collection('sessions').doc(sid), { status: 'played', playedAt: TS(), summary }), e); },
+    reopen(sid, e) { return one(b => b.update(fs.collection('sessions').doc(sid), { status: 'open', playedAt: null }), e); },
     saveConfig(patch) { return fs.collection('config').doc('app').set(patch, { merge: true }); },
-    setRating(n, name, r) { const ref = fs.collection('ratings').doc(n); return r ? ref.set({ name, r }) : ref.delete(); },
-    setLevel(uid, level) { return fs.collection('players').doc(uid).update({ level }); },
+    setRating(n, name, r, e) { const ref = fs.collection('ratings').doc(n); return one(b => r ? b.set(ref, { name, r }) : b.delete(ref), e); },
+    setLevel(uid, level, e) { return one(b => b.update(fs.collection('players').doc(uid), { level }), e); },
+    // The activity log is only loaded while an organizer has it open (newest 400 entries, live).
+    watchLog() {
+      if (unsubLog || !(d.user && d.user.isAdmin)) return; d.log = null; d.logLoaded = false; emit();
+      unsubLog = fs.collection('log').orderBy('at', 'desc').limit(LOG_LIMIT).onSnapshot({ includeMetadataChanges: true }, snap => {
+        d.log = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'none' }) || {}; return Object.assign({}, v, { id: x.id, at: ms(v.at) }); });
+        d.logLoaded = true; emit();
+      }, e => { d.log = []; d.logLoaded = true; d.error = fbExplain(e, 'read'); emit(); });
+    },
+    unwatchLog() { if (unsubLog) unsubLog(); unsubLog = null; d.log = null; d.logLoaded = false; },
     savePairs(p) { return fs.collection('ratings').doc('_pairs').set({ together: p.together || '', apart: p.apart || '' }); },
     // ---- accounts
     signInGoogle() { return google(); },
@@ -580,7 +621,8 @@ function firebaseBackend(conf) {
         if (ok) { const oc = await fs.collection('names').doc(ok).get(); if (oc.exists && oc.data().uid === u.uid) b.delete(oc.ref); }
         b.set(fs.collection('names').doc(nk), { uid: u.uid, name: newName });
       }
-      (d.signups || []).filter(x => x.uid === u.uid && x.addedBy === 'self' && x.status === 'active').forEach(x => b.update(fs.collection('signups').doc(x.id), { name: newName }));
+      (d.signups || []).filter(x => x.uid === u.uid && x.addedBy === 'self' && (x.status === 'active' || x.status === 'leaving')).forEach(x => b.update(fs.collection('signups').doc(x.id), { name: newName }));
+      addLog(b, { type: 'rename', name: newName, uid: u.uid, byName: newName, detail: old });
       try { await b.commit(); } catch (e) { if (/permission-denied/.test(String(e && e.code))) throw nameTaken(); throw e; }
       try { await u.updateProfile({ displayName: newName }); } catch (e) {}
     },
@@ -596,7 +638,7 @@ function seedLocalDb() {
   const d = new Date(); const dow = d.getDay(); let add = (4 - dow + 7) % 7; if (add === 0) add = 7; d.setDate(d.getDate() + add);
   const date = localDateStr(d); const prev = new Date(d); prev.setDate(prev.getDate() - 7); const pdate = localDateStr(prev);
   const t0 = Date.now() - 20 * 3600e3; const tp = t0 - 7 * 24 * 3600e3; let n = 0; const nid = () => 'x' + (++n);
-  const db = { example: true, config: { title: 'Volleyball', currentSessionId: date }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, names: {}, accounts: {}, pairs: { together: '', apart: '' } };
+  const db = { example: true, config: { title: 'Volleyball', currentSessionId: date }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, names: {}, accounts: {}, pairs: { together: '', apart: '' }, log: {} };
   const names = ['Ana', 'Jonas', 'Mia', 'Luca', 'Elif', 'Tom', 'Sara', 'Niko', 'Lena', 'Paul', 'Omar', 'Julia', 'Felix', 'Nora', 'Emre', 'Lisa'];
   const levels = [4, 2, 5, 3, 3, 2, 4, 3, 2, 4, 5, 1, 3, 3, 2, 4];
   names.forEach((name, i) => { db.players['demo-' + i] = { name, level: levels[i], email: name.toLowerCase() + '@example.com' }; db.names[name.toLowerCase()] = { uid: 'demo-' + i, name }; });
@@ -607,18 +649,30 @@ function seedLocalDb() {
   db.sessions[date] = { id: date, date, time: '19:00', place: 'Sporthalle', courts: 2, format: 'mixed', courtsList: ['4v4', '3v3'], price: '8 €', note: '', opensAt: '', duration: 120, status: 'open', playedAt: null, roster: null, summary: null, createdAt: t0 - 3600e3 };
   const paid = ['Ana', 'Mia', 'Elif', 'Jonas', 'Luca', 'Sara', 'Omar', 'Julia'];
   names.forEach((name, i) => { const k = date + '_demo-' + i; db.signups[k] = { id: k, sessionId: date, name, uid: 'demo-' + i, createdAt: t0 + i * 7 * 60e3, status: name === 'Tom' ? 'left' : 'active', paid: paid.includes(name), noshow: false, guestOf: '', addedBy: 'self' }; });
+  // example activity: the previous session being played, every join of this one, Tom leaving, payments ticked
+  const L = []; const put = e => L.push(e);
+  put({ at: tp - 3600e3, sessionId: pdate, type: 'session-create', by: 'demo-organizer', byName: 'Organizer', detail: 'Thu ' + pdate + ' 19:00 · 1 court' });
+  pnames.forEach((name, i) => put({ at: tp - 3000e3 + i * 5 * 60e3, sessionId: pdate, type: 'join', name, uid: uidOf(name), by: uidOf(name), byName: name }));
+  put({ at: tp + 30 * 3600e3, sessionId: pdate, type: 'played', by: 'demo-organizer', byName: 'Organizer', detail: 'no no-shows' });
+  put({ at: t0 - 3600e3, sessionId: date, type: 'session-create', by: 'demo-organizer', byName: 'Organizer', detail: 'Thu ' + date + ' 19:00 · 2 courts' });
+  names.forEach((name, i) => put({ at: t0 + i * 7 * 60e3, sessionId: date, type: 'join', name, uid: uidOf(name), by: uidOf(name), byName: name, key: date + '_demo-' + i }));
+  put({ at: t0 + 130 * 60e3, sessionId: date, type: 'leave-request', name: 'Tom', uid: uidOf('Tom'), by: uidOf('Tom'), byName: 'Tom', key: date + '_demo-5' });
+  put({ at: t0 + 150 * 60e3, sessionId: date, type: 'leave-approved', name: 'Tom', uid: uidOf('Tom'), by: 'demo-organizer', byName: 'Organizer', key: date + '_demo-5' });
+  paid.forEach((name, i) => put({ at: t0 + 200 * 60e3 + i * 60e3, sessionId: date, type: 'paid', name, uid: uidOf(name), by: 'demo-organizer', byName: 'Organizer', key: date + '_' + uidOf(name) }));
+  L.forEach((e, i) => { db.log['seed' + i] = Object.assign({ id: 'seed' + i, name: '', uid: '', key: '', detail: '' }, e); });
   return db;
 }
 function localBackend() {
-  const KEY = 'vb.localdb'; let db = store.get(KEY, null); if (!db || !db.sessions || !db.players) db = seedLocalDb(); if (!db.names) db.names = {};
+  const KEY = 'vb.localdb'; let db = store.get(KEY, null); if (!db || !db.sessions || !db.players) db = seedLocalDb(); if (!db.names) db.names = {}; if (!db.log) db.log = {};
   let admin = !!store.get('vb.localAdmin', false); let session = store.get('vb.localSession', null);
   let cb = null; let seq = 0;
   const copy = o => JSON.parse(JSON.stringify(o));
   const err = (code, msg) => Object.assign(new Error(msg), { code });
   const snapshot = () => {
     const d = emptyData('local'); d.status = 'local'; d.configLoaded = d.sessionsLoaded = true; d.example = !!db.example;
-    d.config = copy(db.config); d.sessions = Object.values(copy(db.sessions)).map(x => { const t = x.opensAt ? new Date(x.opensAt) : null; x.opensAtMs = t && !isNaN(t) ? t.getTime() : 0; return x; }); d.signups = Object.values(copy(db.signups)); d.clockSynced = true;
+    d.config = copy(db.config); d.sessions = Object.values(copy(db.sessions)).map(x => { const t = x.opensAt ? new Date(x.opensAt) : null; x.opensAtMs = t && !isNaN(t) ? t.getTime() : 0; const st = x.date ? new Date(x.date + 'T' + (x.time || '12:00')) : null; x.startsAtMs = st && !isNaN(st) ? st.getTime() : 0; return x; }); d.signups = Object.values(copy(db.signups)); d.clockSynced = true;
     d.contacts = admin ? copy(db.contacts) : {}; d.ratings = admin ? copy(db.ratings) : {}; d.players = admin ? copy(db.players) : {}; d.pairs = admin ? copy(db.pairs) : { together: '', apart: '' };
+    d.log = admin ? Object.values(copy(db.log || {})).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, LOG_LIMIT) : null; d.logLoaded = admin;
     const acc = session && db.accounts[session];
     if (acc) { d.user = { uid: acc.uid, email: acc.email, displayName: acc.name || '', isAdmin: admin, provider: acc.provider }; d.profile = db.players[acc.uid] ? copy(db.players[acc.uid]) : null; }
     else if (admin) { d.user = { uid: 'demo-organizer', email: 'demo organizer', displayName: 'Organizer', isAdmin: true, provider: 'demo' }; d.profile = { name: 'Organizer', level: 3 }; }
@@ -628,32 +682,38 @@ function localBackend() {
   const nid = () => 'l' + Date.now().toString(36) + (++seq) + randomHex(3);
   const curUid = () => { const acc = session && db.accounts[session]; if (acc) return acc.uid; if (admin) return 'demo-organizer'; throw err('vb/not-logged-in', 'Please log in first.'); };
   const login = (email, provider, name) => { if (!db.accounts[email]) db.accounts[email] = { uid: 'u' + randomHex(10), email, provider, name: name || '' }; session = email; emit(); };
+  const whoName = () => { const acc = session && db.accounts[session]; const uid = acc ? acc.uid : (admin ? 'demo-organizer' : ''); return (db.players[uid] && db.players[uid].name) || (acc && acc.name) || (admin ? 'Organizer' : ''); };
+  const addLog = e => { if (!e) return; let by = ''; try { by = curUid(); } catch (x) { return; } const id = nid(); db.log[id] = { id, sessionId: e.sessionId || '', type: e.type, name: e.name || '', uid: e.uid || '', key: e.key || '', detail: e.detail || '', by, byName: e.byName || whoName(), at: Date.now() }; };
   return {
     mode: 'local',
     start(onChange) { cb = onChange; emit(); window.addEventListener('storage', e => { if (e.key === KEY && e.newValue) { try { db = JSON.parse(e.newValue); if (cb) cb(snapshot()); } catch (x) {} } }); },
     async join({ sessionId, name }) {
       const uid = curUid(); const k = sessionId + '_' + uid; const ex = db.signups[k];
-      if (ex && ex.status === 'active') return k;
-      if (ex && ex.status === 'left') Object.assign(ex, { status: 'active', createdAt: Date.now(), name });
-      else if (!ex) db.signups[k] = { id: k, sessionId, name, uid, createdAt: Date.now(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' };
+      if (ex && (ex.status === 'active' || ex.status === 'leaving')) return k;
+      if (ex && ex.status === 'left') { Object.assign(ex, { status: 'active', createdAt: Date.now(), name }); addLog({ type: 'rejoin', sessionId, name, uid, key: k }); }
+      else if (!ex) { db.signups[k] = { id: k, sessionId, name, uid, createdAt: Date.now(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' }; addLog({ type: 'join', sessionId, name, uid, key: k }); }
       else throw err('permission-denied', 'You can\'t rejoin after being removed.');
       emit(); return k;
     },
-    async adminAdd({ sessionId, name, email }) { const k = nid(); db.signups[k] = { id: k, sessionId, name, uid: curUid(), createdAt: Date.now(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'organizer' }; if (email) db.contacts[k] = email; emit(); return k; },
-    async leave(k) { if (db.signups[k]) { db.signups[k].status = 'left'; emit(); } },
-    async updateSignup(k, patch) { if (db.signups[k]) { Object.assign(db.signups[k], patch); emit(); } },
-    async updateSignups(keys, patch) { keys.forEach(k => { if (db.signups[k]) Object.assign(db.signups[k], patch); }); emit(); },
-    async createSession({ id, fields, prev }) {
+    async adminAdd({ sessionId, name, email }) { const k = nid(); db.signups[k] = { id: k, sessionId, name, uid: curUid(), createdAt: Date.now(), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'organizer' }; if (email) db.contacts[k] = email; addLog({ type: 'org-add', sessionId, name, key: k }); emit(); return k; },
+    async leave(k, e) { if (db.signups[k]) { Object.assign(db.signups[k], { status: 'left', leftAt: Date.now() }); addLog(Object.assign({}, e, { type: 'leave' })); emit(); } },
+    async requestLeave(k, e) { if (db.signups[k]) { Object.assign(db.signups[k], { status: 'leaving', leaveRequestedAt: Date.now() }); addLog(Object.assign({}, e, { type: 'leave-request' })); emit(); } },
+    async cancelLeave(k, e) { if (db.signups[k]) { db.signups[k].status = 'active'; addLog(Object.assign({}, e, { type: 'leave-cancel' })); emit(); } },
+    async decideLeave(k, approve, e) { if (!db.signups[k]) return; if (approve) Object.assign(db.signups[k], { status: 'left', leftAt: Date.now() }); else Object.assign(db.signups[k], { status: 'active', leaveDeclinedAt: Date.now() }); addLog(Object.assign({}, e, { type: approve ? 'leave-approved' : 'leave-declined' })); emit(); },
+    async updateSignup(k, patch, e) { if (db.signups[k]) { Object.assign(db.signups[k], patch); addLog(e); emit(); } },
+    async updateSignups(keys, patch, logs) { keys.forEach(k => { if (db.signups[k]) Object.assign(db.signups[k], patch); }); (logs || []).forEach(addLog); emit(); },
+    async createSession({ id, fields, prev }, e) {
       db.sessions[id] = Object.assign({}, fields, { id, status: 'open', playedAt: null, roster: null, summary: null, createdAt: Date.now() });
       if (prev && db.sessions[prev.id]) db.sessions[prev.id].summary = prev.summary;
-      db.config.currentSessionId = id; emit();
+      db.config.currentSessionId = id; addLog(e); emit();
     },
-    async updateSession(sid, fields) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], fields); emit(); } },
-    async markPlayed(sid, summary) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'played', playedAt: Date.now(), summary }); emit(); } },
-    async reopen(sid) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'open', playedAt: null }); emit(); } },
+    async updateSession(sid, fields, e) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], fields); addLog(e); emit(); } },
+    async markPlayed(sid, summary, e) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'played', playedAt: Date.now(), summary }); addLog(e); emit(); } },
+    async reopen(sid, e) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'open', playedAt: null }); addLog(e); emit(); } },
     async saveConfig(patch) { Object.assign(db.config, patch); emit(); },
-    async setRating(n, name, r) { if (r) db.ratings[n] = r; else delete db.ratings[n]; emit(); },
-    async setLevel(uid, level) { if (db.players[uid]) { db.players[uid].level = level; emit(); } },
+    async setRating(n, name, r, e) { if (r) db.ratings[n] = r; else delete db.ratings[n]; addLog(e); emit(); },
+    async setLevel(uid, level, e) { if (db.players[uid]) { db.players[uid].level = level; addLog(e); emit(); } },
+    watchLog() {}, unwatchLog() {},
     async savePairs(p) { db.pairs = { together: p.together || '', apart: p.apart || '' }; emit(); },
     async signInGoogle() { login('you@gmail.com', 'google.com', 'You'); },
     async signInEmail(email, password) { const a = db.accounts[email]; if (!a || a.pw !== password) throw err('auth/invalid-credential', 'Wrong email or password.'); session = email; emit(); },
@@ -661,21 +721,22 @@ function localBackend() {
     async register({ email, password, name, level }) {
       if (db.accounts[email]) throw err('auth/email-already-in-use', 'There is already an account with this email.');
       if (db.names[nameKey(name)]) throw err('vb/name-taken', 'name taken');
-      const uid = 'u' + randomHex(10); db.accounts[email] = { uid, email, provider: 'password', name, pw: password }; db.players[uid] = { name, level, email }; db.names[nameKey(name)] = { uid, name }; session = email; emit();
+      const uid = 'u' + randomHex(10); db.accounts[email] = { uid, email, provider: 'password', name, pw: password }; db.players[uid] = { name, level, email }; db.names[nameKey(name)] = { uid, name }; session = email; addLog({ type: 'register', name, uid, byName: name, detail: 'level ' + level }); emit();
     },
-    async saveProfile({ name, level }) { const uid = curUid(); if (db.players[uid]) return; const n = db.names[nameKey(name)]; if (n && n.uid !== uid) throw err('vb/name-taken', 'name taken'); db.players[uid] = { name, level, email: (db.accounts[session] || {}).email || '' }; db.names[nameKey(name)] = { uid, name }; emit(); },
+    async saveProfile({ name, level }) { const uid = curUid(); if (db.players[uid]) return; const n = db.names[nameKey(name)]; if (n && n.uid !== uid) throw err('vb/name-taken', 'name taken'); db.players[uid] = { name, level, email: (db.accounts[session] || {}).email || '' }; db.names[nameKey(name)] = { uid, name }; addLog({ type: 'register', name, uid, byName: name, detail: 'level ' + level }); emit(); },
     async resetPassword() {},
     async rename(newName) {
       const uid = curUid(); const pl = db.players[uid]; if (!pl) return; const nk = nameKey(newName), ok = nameKey(pl.name);
       const taken = db.names[nk]; if (nk !== ok && taken && taken.uid !== uid) throw err('vb/name-taken', 'name taken');
       if (nk !== ok) { delete db.names[ok]; db.names[nk] = { uid, name: newName }; }
-      pl.name = newName; if (db.accounts[session]) db.accounts[session].name = newName;
-      Object.values(db.signups).forEach(x => { if (x.uid === uid && x.addedBy === 'self' && x.status === 'active') x.name = newName; }); emit();
+      const old = pl.name; pl.name = newName; if (db.accounts[session]) db.accounts[session].name = newName;
+      Object.values(db.signups).forEach(x => { if (x.uid === uid && x.addedBy === 'self' && (x.status === 'active' || x.status === 'leaving')) x.name = newName; });
+      addLog({ type: 'rename', name: newName, uid, byName: newName, detail: old }); emit();
     },
     async changePassword(current, next) { const a = db.accounts[session]; if (!a || a.provider !== 'password') throw err('vb/no-password', 'no password'); if (a.pw !== current) throw err('auth/invalid-credential', 'wrong'); a.pw = next; emit(); },
     async openOrganizerDemo() { admin = true; store.set('vb.localAdmin', true); emit(); },
     async signOut() { session = null; admin = false; store.set('vb.localAdmin', false); emit(); },
-    async clearExamples() { const keep = {}; Object.values(db.accounts || {}).forEach(a => { if (db.players[a.uid]) { keep[a.uid] = db.players[a.uid]; } }); const names = {}; Object.entries(db.names || {}).forEach(([k, v]) => { if (keep[v.uid]) names[k] = v; }); db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: keep, names, accounts: db.accounts || {}, pairs: { together: '', apart: '' } }; emit(); },
+    async clearExamples() { const keep = {}; Object.values(db.accounts || {}).forEach(a => { if (db.players[a.uid]) { keep[a.uid] = db.players[a.uid]; } }); const names = {}; Object.entries(db.names || {}).forEach(([k, v]) => { if (keep[v.uid]) names[k] = v; }); db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: keep, names, accounts: db.accounts || {}, pairs: { together: '', apart: '' }, log: {} }; emit(); },
     async resetDemo() { db = seedLocalDb(); session = null; admin = false; store.set('vb.localAdmin', false); emit(); }
   };
 }
@@ -817,7 +878,7 @@ function rosterSaved(ctx, teams) { const cur = ctx.roster; if (!cur) return fals
 async function ensureRosterSaved(ctx) {
   const teams = draftFor(ctx); if (!ctx || !teams || !teams.some(t => t.length)) return false;
   if (rosterSaved(ctx, teams)) return false;
-  const p = rosterPayload(ctx, teams); const ok = await run(() => B.updateSession(ctx.id, { roster: { t: p.t, b: p.b } }).then(() => true), 'org'); return !!ok;
+  const p = rosterPayload(ctx, teams); const ok = await run(() => B.updateSession(ctx.id, { roster: { t: p.t, b: p.b } }, { type: 'roster', sessionId: ctx.id }).then(() => true), 'org'); return !!ok;
 }
 function rosterData(ctx, teams, benchNames) {
   const ev = ctx.ev || {}; const courts = []; const cl = courtList(ev);
@@ -890,6 +951,7 @@ function viewHTML() {
   const vm = S.vm; const ui = U();
   if (needsProfile()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + profileHTML() + '</div>';
   if (ui.accountOpen && loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + accountPageHTML() + '</div>';
+  if (ui.logOpen && isOrg()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + logPageHTML() + '</div>';
   if (ui.authOpen && !loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + authHTML() + '</div>';
   return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + examplesHTML() + finalRosterHTML(vm) + meHTML(vm) + listsHTML(vm) + historyHTML(vm) + orgHTML(vm) + footerHTML(vm) + '</div>';
 }
@@ -1018,6 +1080,12 @@ function finalRosterHTML(vm) {
 function opensAtMs(ev) { if (!ev) return 0; if (ev.opensAtMs) return ev.opensAtMs; if (!ev.opensAt) return 0; const d = new Date(ev.opensAt); return isNaN(d) ? 0 : d.getTime(); }
 function opensAtDate(ev) { const t = opensAtMs(ev); return t ? new Date(t) : null; }
 function signupsOpen(ev) { const t = opensAtMs(ev); return !t || now() >= t; }
+// Leaving: in the last 3 hours before the start (and after it) a person leaves right away.
+// Earlier than that an organizer has to agree first. The server knows the start (startsAtTs) and enforces the same window.
+const LEAVE_FREE_MS = 3 * 3600e3;
+function startsAtMs(ev) { return ev && ev.startsAtMs ? ev.startsAtMs : 0; }
+function leaveIsFree(ev) { const t = startsAtMs(ev); return !!t && now() >= t - LEAVE_FREE_MS; }
+function leaveFreeFrom(ev) { const t = startsAtMs(ev); return t ? new Date(t - LEAVE_FREE_MS) : null; }
 function fmtCountdown(msLeft) {
   if (msLeft <= 0) return 'now'; const s = Math.ceil(msLeft / 1000);
   const dd = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
@@ -1066,9 +1134,15 @@ function meHTML(vm) {
       : '<h3>You\'re in · #' + (idx + 1) + '</h3><p class="muted small">Registered at ' + joinStamp(person) + ' (server time). The list is in the order the server received sign-ups.</p>';
     if (person.pending) line = '<h3>Saving your spot…</h3><p class="muted">Your place counts from the moment it reaches the list, usually within a second.</p>';
     const pay = paid ? '<span class="pill ok">Paid</span>' : '<span class="pill">' + (price ? 'Pay ' + price + (S.cfg.organizer ? ' to ' + esc(S.cfg.organizer) : '') : 'Not paid yet') + '</span>';
-    const leave = ui.leaveConfirm ? '<div class="actions"><span class="small">Leave the list? You lose your spot.</span><button type="button" class="btn sm danger" data-act="leave-yes">Leave</button><button type="button" class="btn sm ghost" data-act="leave-no">Keep my spot</button></div>'
-      : '<div class="actions"><button type="button" class="btn sm ghost" data-act="leave-ask">Can\'t make it? Leave the list</button></div>';
-    return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + '</span>' + pay + '</div>' + leave + calendarHTML(ev) + '</div></section>';
+    let leave;
+    if (person.leaving) leave = '<div class="note warn"><b>Leave requested.</b> An organizer has to confirm it. Until then you keep your spot, so nobody moves up yet.</div><div class="actions"><button type="button" class="btn sm ghost" data-act="leave-cancel">Changed your mind? Stay on the list</button></div>';
+    else if (ui.leaveConfirm) {
+      const free = isOrg() || leaveIsFree(ev); const from = leaveFreeFrom(ev);
+      const why = free ? 'Your spot goes to the next person' + (vm.bench.length && !onBench ? ' on the bench' : '') + ' right away.'
+        : 'An organizer has to confirm this' + (from ? ' until ' + fmtWhen(from) + ' (3 hours before the start). After that you can leave right away.' : '.') + ' You keep your spot until they confirm.';
+      leave = '<div class="note"><div class="stack"><span><b>Leave the list?</b> ' + esc(why) + '</span><span class="actions"><button type="button" class="btn sm danger" data-act="leave-yes">' + (free ? 'Yes, leave' : 'Yes, ask to leave') + '</button><button type="button" class="btn sm ghost" data-act="leave-no">No, stay</button></span></div></div>';
+    } else leave = (person.declined ? '<div class="note">An organizer kept you on the list. Talk to them if you really can\'t make it.</div>' : '') + '<div class="actions"><button type="button" class="btn sm ghost" data-act="leave-ask">Can\'t make it? Leave the list</button></div>';
+    return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + '</span>' + pay + (person.leaving ? '<span class="pill warn">wants to leave</span>' : '') + '</div>' + leave + calendarHTML(ev) + '</div></section>';
   }
   const full = vm.attendees.length >= vm.capacity; const opens = opensAtDate(ev); const closed = !signupsOpen(ev);
   const mine = S.data.user ? (S.data.signups || []).find(x => x.sessionId === vm.eventId && x.uid === S.data.user.uid && x.addedBy === 'self') : null; const removed = !!(mine && mine.status === 'removed');
@@ -1090,18 +1164,21 @@ function rowHTML(p, label, vm, benchRow) {
   if (org) {
     if (vm.played) right.push('<label class="chk"><input type="checkbox" data-act="noshow-toggle" data-key="' + esc(p.key) + '"' + (p.noshow ? ' checked' : '') + '> no-show</label>');
     right.push('<label class="chk"><input type="checkbox" data-act="paid-toggle" data-key="' + esc(p.key) + '"' + (p.paid ? ' checked' : '') + '> paid</label>');
-    right.push(U().removeConfirm === p.key ? '<button type="button" class="btn xs danger" data-act="remove-yes" data-key="' + esc(p.key) + '">Remove</button><button type="button" class="btn xs ghost" data-act="remove-no">Keep</button>' : '<button type="button" class="btn xs ghost" data-act="remove-ask" data-key="' + esc(p.key) + '" title="Remove from list">×</button>');
+    if (!p.leaving) right.push(U().removeConfirm === p.key ? '<button type="button" class="btn xs danger" data-act="remove-yes" data-key="' + esc(p.key) + '">Remove</button><button type="button" class="btn xs ghost" data-act="remove-no">Keep</button>' : '<button type="button" class="btn xs ghost" data-act="remove-ask" data-key="' + esc(p.key) + '" title="Remove from list">×</button>');
   } else {
     right.push(p.paid ? '<span class="pill ok">paid</span>' : (p.pending ? '<span class="pill pend">pending</span>' : ''));
   }
-  return '<div class="row' + (p.pending ? ' pending' : '') + '"><div class="pos">' + label + '</div><div class="who"><div class="n">' + esc(p.name) + (p.guestOf && vm.people.get(p.guestOf) ? ' <span class="muted small">· guest of ' + esc(vm.people.get(p.guestOf).name) + '</span>' : '') + '</div>' + (org && p.email ? '<div class="e">' + esc(p.email) + '</div>' : '') + ((p.ts || p.pending) ? '<div class="t">' + (p.pending ? 'saving…' : 'joined ' + joinStamp(p)) + '</div>' : '') + '</div><div class="right">' + right.join('') + '</div></div>';
+  return '<div class="row' + (p.pending ? ' pending' : '') + (p.leaving ? ' leaving' : '') + '"><div class="pos">' + label + '</div><div class="who"><div class="n">' + esc(p.name) + (p.guestOf && vm.people.get(p.guestOf) ? ' <span class="muted small">· guest of ' + esc(vm.people.get(p.guestOf).name) + '</span>' : '') + '</div>' + (org && p.email ? '<div class="e">' + esc(p.email) + '</div>' : '') + ((p.ts || p.pending) ? '<div class="t">' + (p.pending ? 'saving…' : 'joined ' + joinStamp(p)) + '</div>' : '') + (p.leaving && !org ? '<div class="t leaving">wants to leave · waiting for an organizer</div>' : '') + '</div><div class="right">' + right.join('') + '</div>' +
+    (p.leaving && org ? '<div class="decide"><span>Wants to leave.</span><button type="button" class="btn xs" data-act="leave-approve" data-key="' + esc(p.key) + '">Let go</button><button type="button" class="btn xs ghost" data-act="leave-decline" data-key="' + esc(p.key) + '">Keep on the list</button></div>' : '') + '</div>';
 }
 function listsHTML(vm) {
   if (!vm.event) return '';
   const play = vm.playing.map((p, i) => rowHTML(p, i + 1, vm, false)).join('') || '<div class="empty">Nobody yet. Be the first.</div>';
   const bench = vm.bench.map((p, i) => rowHTML(p, 'B' + (i + 1), vm, true)).join('');
   const add = isOrg() ? '<div class="actions" style="margin-top:12px"><input class="inp" style="flex:1 1 140px" id="addName" data-ui="addName" placeholder="Name" value="' + esc(U().addName) + '"><input class="inp" style="flex:1 1 140px" id="addEmail" data-ui="addEmail" placeholder="Email (optional)" value="' + esc(U().addEmail) + '"><button type="button" class="btn sm outline" data-act="add-player">Add to list</button></div>' : '';
-  return '<section><h2 class="sec">Playing <span class="cnt">' + vm.playing.length + ' of ' + vm.capacity + '</span></h2><div class="list">' + play + '</div>' + add + '</section>' +
+  const pend = vm.attendees.filter(p => p.leaving);
+  const notice = isOrg() && pend.length ? '<div class="note warn" style="margin-bottom:12px"><b>' + pend.length + (pend.length === 1 ? ' person wants' : ' people want') + ' to leave:</b> ' + esc(pend.map(p => p.name).join(', ')) + '. Use "Let go" or "Keep" next to the name. More than 3 hours before the start, leaving needs an organizer\'s okay; closer to it people leave by themselves.</div>' : '';
+  return notice + '<section><h2 class="sec">Playing <span class="cnt">' + vm.playing.length + ' of ' + vm.capacity + '</span></h2><div class="list">' + play + '</div>' + add + '</section>' +
     '<section class="bench"><h2 class="sec"><span class="dot"></span>Bench <span class="cnt">' + vm.bench.length + '</span></h2><div class="list">' + (bench || '<div class="empty">Empty. Anyone who joins after the list is full lands here, in order.</div>') + '</div></section>';
 }
 function attendanceStats(vm) {
@@ -1144,7 +1221,7 @@ function orgHTML(vm) {
     if (!ui.orgOpen) return '<div class="actions"><button type="button" class="link" data-act="org-open">Organizer (demo)</button></div>';
     return '<section class="card"><div class="stack"><h3>Organizer tools</h3><p class="muted small">This copy runs in demo mode on this device, so the organizer tools open without a login. On the live page the organizer just logs in with the account on the organizer list.</p><div class="actions"><button type="button" class="btn sm" data-act="org-demo">Open organizer tools</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
   }
-  return '<section class="org"><div class="orghead"><h3>Organizer</h3><span class="small muted orgwho">' + esc(d.user.email) + '</span></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
+  return '<section class="org"><div class="orghead"><h3>Organizer</h3><span class="small muted orgwho">' + esc(d.user.email) + '</span><button type="button" class="btn xs ghost" data-act="log-open">Activity log</button></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
 }
 function eventFormHTML(vm) {
   const ui = U(); const ev = ui.ev || {}; const cap = capacityOf({ courtsList: uiCourts(ev) });
@@ -1265,6 +1342,66 @@ function setupHTML() {
     '<div class="actions"><button type="button" class="btn sm" data-act="setup-save">Save for everyone</button><button type="button" class="btn sm ghost" data-act="setup-toggle">Close</button></div>' +
     (ui.suSaved ? '<div class="note ok">Saved.</div>' : '') + demo + '</div>';
 }
+/* ---- activity log (organizers) ---- */
+const LOG_LIMIT = 400;
+const LOG_GROUPS = { joins: ['join', 'rejoin', 'org-add'], leaves: ['leave', 'leave-request', 'leave-cancel', 'leave-approved', 'leave-declined', 'org-remove'], org: ['paid', 'unpaid', 'noshow', 'noshow-undo', 'played', 'reopened', 'session-create', 'session-update', 'roster', 'level', 'rating'], account: ['register', 'rename'] };
+function logLine(e, plain) {
+  const t = plain ? (x => String(x)) : esc; const b = plain ? (x => x) : (x => '<b>' + x + '</b>');
+  const n = b(t(e.name || '?')), by = t(e.byName || 'an organizer'), dt = e.detail ? t(e.detail) : '';
+  switch (e.type) {
+    case 'join': return n + ' joined';
+    case 'rejoin': return n + ' rejoined (back of the queue)';
+    case 'leave': return n + ' left the list' + (dt ? ' · ' + dt : '');
+    case 'leave-request': return n + ' asked to leave';
+    case 'leave-cancel': return n + ' took the leave request back';
+    case 'leave-approved': return by + ' let ' + n + ' leave' + (dt ? ' · ' + dt : '');
+    case 'leave-declined': return by + ' kept ' + n + ' on the list';
+    case 'org-add': return by + ' added ' + n + ' to the list';
+    case 'org-remove': return by + ' removed ' + n + ' from the list' + (dt ? ' · ' + dt : '');
+    case 'paid': return by + ' marked ' + n + ' as paid';
+    case 'unpaid': return by + ' marked ' + n + ' as not paid';
+    case 'noshow': return by + ' marked ' + n + ' as no-show';
+    case 'noshow-undo': return by + ' cleared the no-show for ' + n;
+    case 'played': return by + ' marked the session as played' + (dt ? ' · ' + dt : '');
+    case 'reopened': return by + ' reopened the session';
+    case 'session-create': return by + ' started the session' + (dt ? ' · ' + dt : '');
+    case 'session-update': return by + ' changed the session' + (dt ? ': ' + dt : '');
+    case 'roster': return by + ' saved the teams';
+    case 'level': return by + ' set the level of ' + n + (dt ? ': ' + dt : '');
+    case 'rating': return by + ' rated ' + n + (dt ? ': ' + dt : '');
+    case 'register': return n + ' created an account' + (dt ? ' · ' + dt : '');
+    case 'rename': return (dt ? dt + ' is now ' + n : n + ' changed name');
+    default: return n + ' ' + t(e.type) + (dt ? ' · ' + dt : '');
+  }
+}
+function fmtLogTime(ms) { const d = new Date(ms); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+function logRows() {
+  const ui = U(); const d = S.data; const all = d.log || [];
+  const sel = ui.lgSession || 'all'; const q = nameKey(ui.lgQ || ''); const grp = LOG_GROUPS[ui.lgType];
+  return all.filter(e => (sel === 'all' || e.sessionId === sel) && (!grp || grp.includes(e.type)) && (!q || nameKey(e.name || '').includes(q) || nameKey(e.byName || '').includes(q) || nameKey(e.detail || '').includes(q)));
+}
+function logCSV(rows) {
+  const sessionOf = id => (S.data.sessions || []).find(s => s.id === id);
+  const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const lines = [['Time', 'Session', 'What happened', 'Type', 'Person', 'By', 'Detail'].map(cell).join(',')];
+  rows.forEach(e => { const s = sessionOf(e.sessionId); lines.push([e.at ? new Date(e.at).toISOString() : '', s ? fmtEventDate(s) + (s.time ? ' ' + s.time : '') : (e.sessionId || ''), logLine(e, true), e.type, e.name || '', e.byName || '', e.detail || ''].map(cell).join(',')); });
+  return lines.join('\r\n') + '\r\n';
+}
+function logPageHTML() {
+  const ui = U(); const d = S.data; const all = d.log || []; const curId = S.vm.eventId;
+  const sessions = (d.sessions || []).slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.createdAt || 0) - (a.createdAt || 0));
+  const sel = ui.lgSession || 'all'; const rows = logRows();
+  const opts = '<option value="all"' + (sel === 'all' ? ' selected' : '') + '>All sessions</option>' + sessions.map(s => '<option value="' + esc(s.id) + '"' + (sel === s.id ? ' selected' : '') + '>' + esc(fmtEventDate(s)) + (s.time ? ' ' + esc(s.time) : '') + (s.id === curId ? ' · current' : '') + '</option>').join('');
+  const chips = [['all', 'Everything'], ['joins', 'Joins'], ['leaves', 'Leaves'], ['org', 'Organizer changes'], ['account', 'Accounts']].map(([k, t]) => '<button type="button" class="chip' + ((ui.lgType || 'all') === k ? ' sel' : '') + '" data-act="log-type" data-t="' + k + '">' + t + '</button>').join('');
+  const sessionOf = id => sessions.find(s => s.id === id);
+  const list = rows.map(e => { const s = sel === 'all' && e.sessionId ? sessionOf(e.sessionId) : null; return '<div class="lrow"><div class="lt">' + (e.at ? esc(fmtLogTime(e.at)) : 'saving…') + '</div><div>' + logLine(e) + '</div>' + (s ? '<div class="ls">' + esc(fmtEventDate(s)) + (s.time ? ' ' + esc(s.time) : '') + '</div>' : '') + '</div>'; }).join('');
+  const body = !d.logLoaded ? '<div class="empty">Loading…</div>' : (rows.length ? '<div class="loglist">' + list + '</div>' : '<div class="empty">' + (all.length ? 'Nothing matches these filters.' : 'Nothing logged yet. Joins, leaves and organizer changes land here from now on.') + '</div>');
+  return '<section class="card"><div class="stack"><h3>Activity</h3><p class="muted small">Every join, leave and change, newest first. Only organizers can see this.</p>' +
+    '<div class="actions"><select class="inp" id="lgSession" data-ui="lgSession" style="flex:1 1 160px">' + opts + '</select><input class="inp" id="lgQ" data-ui="lgQ" placeholder="Filter by name" value="' + esc(ui.lgQ || '') + '" style="flex:1 1 140px"></div>' +
+    '<div class="chips">' + chips + '</div>' +
+    '<div class="banner"><span class="small muted">' + rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies') + (all.length >= LOG_LIMIT ? ' · showing the latest ' + LOG_LIMIT : '') + '</span>' + (rows.length ? '<button type="button" class="btn xs ghost" data-act="log-csv">Download CSV</button>' : '') + '</div>' +
+    body + '<div class="actions small"><button type="button" class="link" data-act="log-close">Back to the list</button></div></div></section>';
+}
 function footerHTML(vm) {
   return '<div class="footer">First come, first served. The first ' + (vm.capacity || 'N') + ' on the list play; everyone after that is on the bench and moves up when someone leaves. The final roster is made from players who have paid.</div>';
 }
@@ -1280,6 +1417,7 @@ function render() {
   S.renderPending = false; S.lastHTML = html; $('#app').innerHTML = html; paintStatus();
   if (keep) { const el = document.getElementById(keep.id); if (el) { try { el.focus({ preventScroll: true }); if (keep.start != null && el.setSelectionRange) el.setSelectionRange(keep.start, keep.end); } catch (e) {} window.scrollTo(0, keep.y); } }
   S.openState = S.vm.event && opensAtMs(S.vm.event) ? signupsOpen(S.vm.event) : undefined;
+  S.leaveState = S.vm.event ? leaveIsFree(S.vm.event) : undefined;
 }
 function uiCourts(e) {
   const n4 = Math.min(8, Math.max(0, parseInt(e && e.c4, 10) || 0)), n3 = Math.min(8, Math.max(0, parseInt(e && e.c3, 10) || 0));
@@ -1303,6 +1441,20 @@ function eventPayload(id) {
   const n4 = cl.filter(f => f === '4v4').length, n3 = cl.length - n4;
   const dur = Math.min(600, Math.max(30, parseInt(e.duration, 10) || 120));
   return { id, date: e.date || localDateStr(new Date()), time: e.time || '', place: normName(e.place), courts: cl.length, format: n4 && n3 ? 'mixed' : (n3 ? '3v3' : '4v4'), courtsList: cl, price: normName(e.price), note: normName(e.note), opensAt: (e.opensAt || '').trim(), duration: dur };
+}
+// What an activity-log entry says about a person on the list.
+function logEntryFor(p, type) { return { type, sessionId: S.vm.eventId || '', name: p.name, uid: p.addedBy === 'self' ? (p.uid || '') : '', key: p.key }; }
+// When someone with a playing spot goes, the first person on the bench takes a playing spot; the list stays in joining order.
+function movesUpFor(p) { const vm = S.vm; const idx = vm.attendees.indexOf(p); return idx >= 0 && idx < vm.capacity && vm.bench.length ? vm.bench[0] : null; }
+function withMoveUp(e, p) { const up = movesUpFor(p); if (up) e.detail = up.name + ' moves up from the bench'; return e; }
+function sessionLabel(f) { return [fmtEventDate(f), f.time, f.place, courtSummary(f), f.opensAt ? 'opens ' + f.opensAt.replace('T', ' ') : ''].filter(Boolean).join(' · '); }
+function sessionDiff(before, after) {
+  const b = before || {}; const out = [];
+  const cmp = (label, x, y) => { x = x == null ? '' : String(x); y = y == null ? '' : String(y); if (x !== y) out.push(label + ' ' + (x || '–') + ' → ' + (y || '–')); };
+  cmp('date', b.date, after.date); cmp('time', b.time, after.time); cmp('place', b.place, after.place);
+  cmp('courts', courtSummary(b), courtSummary(after)); cmp('price', b.price, after.price); cmp('opens', (b.opensAt || '').replace('T', ' '), (after.opensAt || '').replace('T', ' '));
+  cmp('duration', b.duration, after.duration); cmp('note', b.note, after.note);
+  return out.join('; ');
 }
 const actions = {
   'clear-examples': async () => { if (B.clearExamples) await B.clearExamples(); S.drafts = {}; store.set('vb.drafts', S.drafts); },
@@ -1379,18 +1531,35 @@ const actions = {
     catch (e) { ui.acErr = /invalid-credential|wrong-password|invalid-login/.test(String(e && e.code)) ? 'The current password is wrong.' : authText(e); }
     ui.acBusy = false; render();
   },
-  'logout': async () => { const ui = U(); ui.accountOpen = false; ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null }; await run(() => B.signOut(), 'auth'); render(); },
+  'logout': async () => { const ui = U(); ui.accountOpen = false; if (ui.logOpen) { ui.logOpen = false; B.unwatchLog(); } ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null }; await run(() => B.signOut(), 'auth'); render(); },
   'cal-ics': async () => { const ev = S.vm.event; if (!ev) return; await saveFile('volleyball-' + (ev.date || 'session') + '.ics', icsText(ev), 'text/calendar'); },
   'leave-ask': () => { U().leaveConfirm = true; render(); },
   'leave-no': () => { U().leaveConfirm = false; render(); },
-  'leave-yes': async () => { U().leaveConfirm = false; const k = S.vm.myKey; if (!k) { render(); return; } await run(() => B.leave(k), 'leave'); },
+  'leave-yes': async () => {
+    U().leaveConfirm = false; const k = S.vm.myKey; const p = k && S.vm.people.get(k); if (!p) { render(); return; }
+    const e = logEntryFor(p); const free = isOrg() || leaveIsFree(S.vm.event);
+    if (!free) { await run(() => B.requestLeave(k, e), 'leave'); return; }
+    try { await B.leave(k, withMoveUp(e, p)); }
+    catch (x) {
+      // the server did not consider it free (clock a few seconds off, start not stored yet): ask instead
+      if (/permission-denied/.test(String(x && x.code))) { const ok = await run(() => B.requestLeave(k, e).then(() => true), 'leave'); if (ok) toast('Sent as a request: an organizer has to confirm it.'); }
+      else toast(S.data.mode === 'firebase' ? fbExplain(x, 'leave') : ((x && x.message) || 'Something went wrong'));
+    }
+  },
+  'leave-cancel': async () => { const k = S.vm.myKey; const p = k && S.vm.people.get(k); if (!p) return; await run(() => B.cancelLeave(k, logEntryFor(p)), 'leave'); },
+  'leave-approve': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; const up = movesUpFor(p); const ok = await run(() => B.decideLeave(k, true, withMoveUp(logEntryFor(p), p)).then(() => true), 'org'); if (ok) toast(p.name + ' left the list' + (up ? ' · ' + up.name + ' moves up from the bench' : '')); },
+  'leave-decline': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.decideLeave(k, false, logEntryFor(p)), 'org'); },
+  'log-open': () => { const ui = U(); ui.logOpen = true; ui.lgQ = ''; if (ui.lgSession !== 'all' && !(S.data.sessions || []).some(s => s.id === ui.lgSession)) ui.lgSession = 'all'; B.watchLog(); window.scrollTo(0, 0); render(); },
+  'log-close': () => { U().logOpen = false; B.unwatchLog(); render(); },
+  'log-type': (el) => { U().lgType = el.dataset.t; render(); },
+  'log-csv': async () => { await saveFile('volleyball-activity.csv', logCSV(logRows()), 'text/csv'); },
   'org-open': () => { U().orgOpen = true; render(); },
   'org-cancel': () => { U().orgOpen = false; render(); },
   'org-demo': async () => { if (B.openOrganizerDemo) await B.openOrganizerDemo(); U().orgOpen = false; U().evDirty = false; render(); },
-  'paid-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { paid: !p.paid }), 'org'); },
+  'paid-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { paid: !p.paid }, logEntryFor(p, p.paid ? 'unpaid' : 'paid')), 'org'); },
   'remove-ask': (el) => { U().removeConfirm = el.dataset.key; render(); },
   'remove-no': () => { U().removeConfirm = null; render(); },
-  'remove-yes': async (el) => { const k = el.dataset.key; U().removeConfirm = null; await run(() => B.updateSignup(k, { status: 'removed' }), 'org'); },
+  'remove-yes': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); U().removeConfirm = null; if (!p) { render(); return; } const up = movesUpFor(p); const ok = await run(() => B.updateSignup(k, { status: 'removed' }, withMoveUp(logEntryFor(p, 'org-remove'), p)).then(() => true), 'org'); if (ok && up) toast(up.name + ' moves up from the bench'); },
   'add-player': async () => {
     const ui = U(); const name = normName(ui.addName).slice(0, 60); const email = normEmail(ui.addEmail);
     if (!name) { toast('Enter a name first.'); return; }
@@ -1398,7 +1567,7 @@ const actions = {
     if (S.vm.attendees.some(p => p.name.toLowerCase() === name.toLowerCase())) { toast(name + ' is already on the list.'); return; }
     ui.addName = ''; ui.addEmail = ''; await run(() => B.adminAdd({ sessionId: S.vm.eventId, name, email }), 'org');
   },
-  'ev-update': async () => { if (!S.vm.eventId) return; const f = eventFields(); U().evDirty = false; await run(() => B.updateSession(S.vm.eventId, f), 'org'); toast('Session updated'); },
+  'ev-update': async () => { if (!S.vm.eventId) return; const f = eventFields(); U().evDirty = false; const diff = sessionDiff(S.vm.event, f); await run(() => B.updateSession(S.vm.eventId, f, { type: 'session-update', sessionId: S.vm.eventId, detail: diff || 'no visible change' }), 'org'); toast('Session updated'); },
   'ev-new-ask': () => { if (!S.vm.event) { actions['ev-new-yes'](); return; } U().newConfirm = true; render(); },
   'ev-new-no': () => { U().newConfirm = false; render(); },
   'ev-new-yes': async () => {
@@ -1406,7 +1575,7 @@ const actions = {
     ui.newConfirm = false; ui.evDirty = false; ui.roster = { mode: 'closed', sel: null, id: null };
     let prev = null;
     if (S.vm.eventId) { await ensureRosterSaved(ctxFor(null)); prev = { id: S.vm.eventId, summary: summaryOf(S.vm) }; }
-    await run(() => B.createSession({ id, fields: f, prev }), 'org');
+    await run(() => B.createSession({ id, fields: f, prev }, { type: 'session-create', sessionId: id, detail: sessionLabel(f) }), 'org');
   },
   'hist-toggle': () => { U().histOpen = !U().histOpen; render(); },
   'done-ask': () => { U().doneConfirm = true; U().noshowSel = {}; render(); },
@@ -1416,13 +1585,13 @@ const actions = {
     const ui = U(); ui.doneConfirm = false; if (!S.vm.eventId) return; const id = S.vm.eventId; const sel = Object.assign({}, ui.noshowSel || {}); ui.noshowSel = {};
     await ensureRosterSaved(ctxFor(null));
     const keys = Object.keys(sel).filter(k => S.vm.people.get(k));
-    if (keys.length) await run(() => B.updateSignups(keys, { noshow: true }), 'org');
-    const summary = summaryOf(S.vm, sel);
-    const ok = await run(() => B.markPlayed(id, summary).then(() => true), 'org');
+    if (keys.length) await run(() => B.updateSignups(keys, { noshow: true }, keys.map(k => logEntryFor(S.vm.people.get(k), 'noshow'))), 'org');
+    const summary = summaryOf(S.vm, sel); const ns = keys.map(k => S.vm.people.get(k).name);
+    const ok = await run(() => B.markPlayed(id, summary, { type: 'played', sessionId: id, detail: ns.length ? 'no-show: ' + ns.join(', ') : 'no no-shows' }).then(() => true), 'org');
     if (ok) toast('Session marked as played');
   },
-  'noshow-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { noshow: !p.noshow }), 'org'); },
-  'reopen': async () => { if (!S.vm.eventId) return; await run(() => B.reopen(S.vm.eventId), 'org'); },
+  'noshow-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { noshow: !p.noshow }, logEntryFor(p, p.noshow ? 'noshow-undo' : 'noshow')), 'org'); },
+  'reopen': async () => { if (!S.vm.eventId) return; await run(() => B.reopen(S.vm.eventId, { type: 'reopened', sessionId: S.vm.eventId }), 'org'); },
   'ev-copy-last': () => {
     const src = S.vm.event || (S.vm.history.length ? S.vm.history[S.vm.history.length - 1].event : null); if (!src) return;
     const cl = courtList(src); const d = eventDateObj(src) || new Date(); const next = new Date(d); next.setDate(next.getDate() + 7);
@@ -1435,14 +1604,14 @@ const actions = {
   'reminder-copy': () => { const unpaid = S.vm.playing.filter(p => !p.paid && !p.noshow); copyText(reminderText(S.vm, unpaid)); },
   'allpaid-ask': () => { U().allPaidConfirm = true; render(); },
   'allpaid-no': () => { U().allPaidConfirm = false; render(); },
-  'allpaid-yes': async () => { U().allPaidConfirm = false; const unpaid = S.vm.playing.filter(p => !p.paid && !p.noshow); if (!unpaid.length) { render(); return; } const ok = await run(() => B.updateSignups(unpaid.map(p => p.key), { paid: true }).then(() => true), 'org'); if (ok) toast('Marked ' + unpaid.length + ' as paid'); },
+  'allpaid-yes': async () => { U().allPaidConfirm = false; const unpaid = S.vm.playing.filter(p => !p.paid && !p.noshow); if (!unpaid.length) { render(); return; } const ok = await run(() => B.updateSignups(unpaid.map(p => p.key), { paid: true }, unpaid.map(p => logEntryFor(p, 'paid'))).then(() => true), 'org'); if (ok) toast('Marked ' + unpaid.length + ' as paid'); },
   'ratings-toggle': () => { U().ratingsOpen = !U().ratingsOpen; render(); },
   'skill-set': async (el) => {
-    const n = el.dataset.name; const v = +el.dataset.n; const label = el.dataset.label || n; const uid = el.dataset.uid;
-    if (uid) { S.skills[n] = v; render(); await run(() => B.setLevel(uid, v), 'org'); return; }
+    const n = el.dataset.name; const v = +el.dataset.n; const label = el.dataset.label || n; const uid = el.dataset.uid; const before = S.skills[n] || 0;
+    if (uid) { if (before === v) return; S.skills[n] = v; render(); await run(() => B.setLevel(uid, v, { type: 'level', sessionId: S.vm.eventId || '', name: label, uid, detail: (before || 3) + ' → ' + v }), 'org'); return; }
     const next = S.skills[n] === v ? 0 : v;
     if (next) S.skills[n] = next; else delete S.skills[n]; render();
-    await run(() => B.setRating(n, label, next || null), 'org');
+    await run(() => B.setRating(n, label, next || null, { type: 'rating', sessionId: S.vm.eventId || '', name: label, detail: (before || 'unrated') + ' → ' + (next || 'unrated') }), 'org');
   },
   'roster-open': (el) => { openRoster(el.dataset.id || null); render(); },
   'roster-shuffle': () => { const ctx = activeCtx(); if (!ctx) return; setDraft(ctx, generateTeams(ctx)); U().roster.sel = null; render(); toast('New teams generated'); },
@@ -1499,20 +1668,28 @@ function init() {
   app.addEventListener('input', e => handleInput(e.target));
   app.addEventListener('toggle', e => { const d = e.target; if (d && d.classList && d.classList.contains('hist') && d.dataset.id) { if (d.open) U().histOpenIds[d.dataset.id] = true; else delete U().histOpenIds[d.dataset.id]; } }, true);
   app.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'addName') { actions['add-player'](); } if (e.key === 'Enter' && e.target.id === 'auPass') { actions[U().authMode === 'register' ? 'auth-register' : 'auth-login'](); } });
-  setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && opensAtMs(ev) && S.openState !== signupsOpen(ev)) { S.lastHTML = ''; render(); } else paintStatus(); }, 5000);
+  setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && ((opensAtMs(ev) && S.openState !== signupsOpen(ev)) || S.leaveState !== leaveIsFree(ev))) { S.lastHTML = ''; render(); } else paintStatus(); }, 5000);
   setInterval(() => { if (!document.hidden) tickCountdown(); }, 1000);
   B.start(onData);
   checkForUpdate();
   // Demo helper: open the demo page with #countdown to make the current session open 3 minutes from now.
-  if (B.mode === 'local' && location.hash === '#countdown') {
-    setTimeout(async () => {
-      const sid = S.vm && S.vm.eventId; if (!sid) return;
-      const o = new Date(Date.now() + 3 * 60e3);
-      await B.updateSession(sid, { opensAt: localDateStr(o) + 'T' + pad(o.getHours()) + ':' + pad(o.getMinutes()) + ':' + pad(o.getSeconds()) });
-      try { history.replaceState(null, '', location.pathname); } catch (e) {}
-      S.lastHTML = ''; render(); toast('Demo: sign-ups open in 3 minutes');
-    }, 400);
+  // Demo helpers (demo page only): #countdown makes sign-ups open 3 minutes from now,
+  // #soon moves the session start to 2 hours from now (so leaving works without an organizer).
+  if (B.mode === 'local') { setTimeout(demoHash, 400); window.addEventListener('hashchange', demoHash); }
+}
+async function demoHash() {
+  const h = location.hash; const sid = S.vm && S.vm.eventId; if (!sid || !/^#(countdown|soon)$/.test(h)) return;
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  if (h === '#countdown') {
+    const o = new Date(Date.now() + 3 * 60e3);
+    await B.updateSession(sid, { opensAt: localDateStr(o) + 'T' + pad(o.getHours()) + ':' + pad(o.getMinutes()) + ':' + pad(o.getSeconds()) });
+    toast('Demo: sign-ups open in 3 minutes');
+  } else {
+    const o = new Date(Date.now() + 2 * 3600e3);
+    await B.updateSession(sid, { date: localDateStr(o), time: pad(o.getHours()) + ':' + pad(o.getMinutes()), opensAt: '' });
+    toast('Demo: the session now starts in 2 hours');
   }
+  S.lastHTML = ''; render();
 }
 /* GitHub Pages and browsers like to keep an old copy of this file. Ask the server for the current
    version tag; if it differs from ours, reload once (not more, so a stale cache can't cause a loop). */
@@ -1536,11 +1713,12 @@ function handleInput(el) {
     pairsTimer = setTimeout(() => { pairsTimer = null; run(() => B.savePairs(S.pairs), 'org'); }, 800); return;
   }
   ui[k] = v;
+  if (/^lg/.test(k)) { render(); return; }
   if (/^(au|pf)/.test(k)) ui.authErr = '';
   if (/^ac/.test(k)) { ui.acErr = ''; ui.acInfo = ''; }
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, balanceTeams, announceText, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, get B() { return B; } };
+window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, balanceTeams, announceText, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, logCSV, logRows, logLine, get B() { return B; } };
 })();
 </script>
 
