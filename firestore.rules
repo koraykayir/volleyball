@@ -16,7 +16,7 @@ service cloud.firestore {
       let s = sessionData(id);
       return s.status == 'open' && (s.get('opensAtTs', null) == null || request.time >= s.opensAtTs);
     }
-    function validName(n) { return n is string && n.size() > 0 && n.size() <= 60 && !n.matches('.*[/\\].*'); }
+    function validName(n) { return n is string && n.size() > 0 && n.size() <= 60 && !n.matches('.*/.*'); }
 
     // Organizer list: maintained by hand in the console. Each person may only check their own entry.
     match /admins/{adminEmail} {
