@@ -178,6 +178,7 @@ details.help{font-size:14px}
 .hr{height:1px; background:var(--line)}
 .banner{display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap}
 .tip{font-size:12.5px; color:var(--muted); margin-top:4px}
+.msec{font-size:.85em; opacity:.7}
 .dotlive{width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto}
 .dotlive.live{background:var(--ok)}
 .dotlive.offline,.dotlive.demo{background:var(--zone)}
@@ -276,15 +277,28 @@ function courtSummary(ev) {
    admins/{email}        added by hand in the Firebase console */
 function emptyData(mode) { return { mode, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false }; }
 function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', duration: s.duration || 120 }; }
+// Order is decided by the server clock: Firestore stamps each sign-up on arrival (rules reject any other time).
+// Entries still on their way have no server time yet and sort after all confirmed ones.
+function serverOrder(a, b) {
+  const pa = a.createdAt == null || a.pending, pb = b.createdAt == null || b.pending;
+  if (pa !== pb) return pa ? 1 : -1;
+  return (a.createdAt || 0) - (b.createdAt || 0) || (a.createdSub || 0) - (b.createdSub || 0) || String(a.id).localeCompare(String(b.id));
+}
+function fmtJoin(ms) {
+  if (!ms) return ''; const d = new Date(ms); const t = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  const day = d.toDateString() === new Date().toDateString() ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' ';
+  return { text: day + t, ms: '.' + String(d.getMilliseconds()).padStart(3, '0') };
+}
+function joinStamp(p) { if (p.pending) return 'saving…'; const j = fmtJoin(p.tsMs); return j ? esc(j.text) + '<span class="msec">' + j.ms + '</span>' : ''; }
 function buildVM(d) {
   const cfg = d.config || {}; const curId = cfg.currentSessionId || null;
   const sessions = (d.sessions || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (a.createdAt || 0) - (b.createdAt || 0));
   const cur = sessions.find(s => s.id === curId) || null;
   const st = { loading: d.mode === 'firebase' && !(d.configLoaded && d.sessionsLoaded) && d.status !== 'error', eventId: cur ? cur.id : null, event: sessionEvent(cur), roster: cur && cur.roster && Array.isArray(cur.roster.t) ? cur.roster : null, played: !!(cur && cur.status === 'played'), doneTs: cur && cur.playedAt ? new Date(cur.playedAt).toISOString() : '', people: new Map(), history: [], myKey: null };
   const uid = d.user && d.user.uid;
-  const sign = cur ? (d.signups || []).filter(x => x.sessionId === cur.id).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || String(a.id).localeCompare(String(b.id))) : [];
+  const sign = cur ? (d.signups || []).filter(x => x.sessionId === cur.id).sort(serverOrder) : [];
   sign.forEach(x => {
-    st.people.set(x.id, { key: x.id, name: normName(x.name), email: (d.contacts || {})[x.id] || (x.addedBy === 'self' && (d.players || {})[x.uid] ? (d.players[x.uid].email || '') : ''), ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active', paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
+    st.people.set(x.id, { key: x.id, tsMs: x.createdAt || 0, name: normName(x.name), email: (d.contacts || {})[x.id] || (x.addedBy === 'self' && (d.players || {})[x.uid] ? (d.players[x.uid].email || '') : ''), ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active', paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
   });
   st.attendees = sign.map(x => st.people.get(x.id)).filter(p => p.active);
   const mine = uid ? st.attendees.find(p => p.uid === uid && !p.guestOf && p.addedBy !== 'organizer') : null;
@@ -418,7 +432,7 @@ function firebaseBackend(conf) {
     subSid = sid; if (unsubSign) unsubSign(); unsubSign = null; d.signups = [];
     if (!sid) return;
     unsubSign = fs.collection('signups').where('sessionId', '==', sid).onSnapshot({ includeMetadataChanges: true }, snap => {
-      d.signups = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'estimate' }) || {}; return Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), pending: !!x.metadata.hasPendingWrites }); });
+      d.signups = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'none' }) || {}; const c = v.createdAt; return Object.assign({}, v, { id: x.id, createdAt: ms(c), createdSub: c && typeof c.nanoseconds === 'number' ? c.nanoseconds % 1000000 : 0, pending: !!x.metadata.hasPendingWrites || !c }); });
       emit();
     }, readFail);
   }
@@ -934,7 +948,7 @@ function meHTML(vm) {
   if (person) {
     const onBench = idx >= vm.capacity; const paid = person.paid;
     let line = onBench ? '<h3>You\'re on the bench · B' + (idx - vm.capacity + 1) + '</h3><p class="muted">' + (idx - vm.capacity === 0 ? 'You\'re first in line. ' : (idx - vm.capacity) + ' ahead of you. ') + 'You move up as soon as someone leaves.</p>'
-      : '<h3>You\'re in · #' + (idx + 1) + '</h3>';
+      : '<h3>You\'re in · #' + (idx + 1) + '</h3><p class="muted small">Registered at ' + joinStamp(person) + ' (server time). The list is in the order the server received sign-ups.</p>';
     if (person.pending) line = '<h3>Saving your spot…</h3><p class="muted">Your place counts from the moment it reaches the list, usually within a second.</p>';
     const pay = paid ? '<span class="pill ok">Paid</span>' : '<span class="pill">' + (price ? 'Pay ' + price + (S.cfg.organizer ? ' to ' + esc(S.cfg.organizer) : '') : 'Not paid yet') + '</span>';
     const leave = ui.leaveConfirm ? '<div class="actions"><span class="small">Leave the list? You lose your spot.</span><button type="button" class="btn sm danger" data-act="leave-yes">Leave</button><button type="button" class="btn sm ghost" data-act="leave-no">Keep my spot</button></div>'
@@ -965,7 +979,7 @@ function rowHTML(p, label, vm, benchRow) {
   } else {
     right.push(p.paid ? '<span class="pill ok">paid</span>' : (p.pending ? '<span class="pill pend">pending</span>' : ''));
   }
-  return '<div class="row' + (p.pending ? ' pending' : '') + '"><div class="pos">' + label + '</div><div class="who"><div class="n">' + esc(p.name) + (p.guestOf && vm.people.get(p.guestOf) ? ' <span class="muted small">· guest of ' + esc(vm.people.get(p.guestOf).name) + '</span>' : '') + '</div>' + (org && p.email ? '<div class="e">' + esc(p.email) + '</div>' : '') + (p.ts ? '<div class="t">joined ' + esc(fmtTime(p.ts)) + '</div>' : '') + '</div><div class="right">' + right.join('') + '</div></div>';
+  return '<div class="row' + (p.pending ? ' pending' : '') + '"><div class="pos">' + label + '</div><div class="who"><div class="n">' + esc(p.name) + (p.guestOf && vm.people.get(p.guestOf) ? ' <span class="muted small">· guest of ' + esc(vm.people.get(p.guestOf).name) + '</span>' : '') + '</div>' + (org && p.email ? '<div class="e">' + esc(p.email) + '</div>' : '') + ((p.ts || p.pending) ? '<div class="t">' + (p.pending ? 'saving…' : 'joined ' + joinStamp(p)) + '</div>' : '') + '</div><div class="right">' + right.join('') + '</div></div>';
 }
 function listsHTML(vm) {
   if (!vm.event) return '';
