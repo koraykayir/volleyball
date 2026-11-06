@@ -192,7 +192,7 @@ details.help{font-size:14px}
 .how ol{margin:8px 0 0; padding-left:20px; display:flex; flex-direction:column; gap:4px}
 .qr{display:flex; flex-direction:column; align-items:flex-start; gap:8px}
 .qr svg,.qr img{width:180px; height:180px; background:#fff; border-radius:8px; padding:6px; box-sizing:content-box}
-.statgrid.org{grid-template-columns:1fr auto auto auto auto}
+.statgrid.five{grid-template-columns:1fr auto auto auto auto}
 .rec{display:flex; flex-wrap:wrap; gap:6px 14px; font-size:14px}
 .rec b{font:700 20px/1 var(--display)}
 .rec span{display:flex; flex-direction:column; min-width:70px}
@@ -426,7 +426,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v16'; // build tag for the self-update check
+const APP_VERSION = 'v17'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
@@ -1407,7 +1407,7 @@ function statsHTML(vm) {
   const org = isOrg(); let late = null;
   if (org) { if (S.leftAll == null && !S.leftLoading && B.leftSignups) { S.leftLoading = true; B.leftSignups().then(r => { S.leftAll = r || []; }, () => { S.leftAll = []; }).then(() => { S.leftLoading = false; S.lastHTML = ''; render(); }); } late = lateLeaves(vm); }
   const cells = rows.map(r => '<span>' + esc(r.name) + '</span><span>' + r.played + '</span><span>' + r.bench + '</span><span>' + (r.noshow || '') + '</span>' + (org ? '<span>' + (late.get(nameKey(r.name)) || '') + '</span>' : '')).join('');
-  return '<details class="hist stats"><summary><span>Attendance so far</span><span class="cnt">' + rows.length + ' people</span></summary><div class="hbody"><div class="statgrid' + (org ? ' org' : '') + '"><b>Name</b><b>Played</b><b>Bench</b><b>No-show</b>' + (org ? '<b title="Left in the last 3 hours before the start">Late leave</b>' : '') + cells + '</div>' + (org ? '<div class="tip">Late leave = left the list in the last 3 hours before the start. Only organizers see this column.</div>' : '') + '</div></details>';
+  return '<details class="hist stats"><summary><span>Attendance so far</span><span class="cnt">' + rows.length + ' people</span></summary><div class="hbody"><div class="statgrid' + (org ? ' five' : '') + '"><b>Name</b><b>Played</b><b>Bench</b><b>No-show</b>' + (org ? '<b title="Left in the last 3 hours before the start">Late leave</b>' : '') + cells + '</div>' + (org ? '<div class="tip">Late leave = left the list in the last 3 hours before the start. Only organizers see this column.</div>' : '') + '</div></details>';
 }
 function historyHTML(vm) {
   const h = vm.history; const ui = U();
