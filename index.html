@@ -427,7 +427,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v18'; // build tag for the self-update check
+const APP_VERSION = 'v19'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
@@ -918,10 +918,10 @@ function activeCtx() { return ctxFor(U().roster.id); }
 /* ---- roster generation ----
    1. Groups: players are split into court-sized groups so that people who shared a court in past
       sessions (saved teams) are together as much as possible (hill climbing with restarts).
-   2. Courts: the groups are ordered by strength (average rating); the strongest group takes the
-      smallest court, the next one the next court, and so on. When a group is bigger than its court,
-      its weakest members spill over into the next court. Groups matter more than strength.
-      Without any shared past, courts of different sizes are filled by rating (strongest on the smallest).
+   2. Courts: each group stays whole on its court. Strength (average rating) only acts as a tie-breaker:
+      among courts of the same size the stronger group gets the lower court number, and players without
+      a shared past are placed on the smaller courts when they are stronger. Groups matter more than strength.
+      Without any shared past at all, courts of different sizes are filled by rating (strongest on the smallest).
    3. Teams: each court is split into two teams whose average levels are as close as possible
       (exhaustive; a court has at most 10). Keep-together pairs share a team, keep-apart pairs never do (when possible). */
 function familiarity(ctx) {
@@ -966,8 +966,14 @@ function generateTeams(ctx, courtsIn) {
   // fill slots in order from a sequence of units; a unit that does not fit waits for the next slot
   const cutUnits = seq => { const out = slotSizes.map(() => []); let left = seq.slice(); slotSizes.forEach((sz, i) => { let room = sz; const rest = []; left.forEach(u => { if (u.length <= room) { out[i].push(u); room -= u.length; } else rest.push(u); }); left = rest; }); left.forEach(u => { let i = 0; for (let j = 1; j < out.length; j++) if (slotSizes[j] - out[j].flat().length > slotSizes[i] - out[i].flat().length) i = j; out[i].push(u); }); return out; };
   // split the units into slots so that past court-mates are together (hill climbing with restarts)
+  // Groups: shared past first (x1000), then, only as a tie-breaker between courts of different sizes,
+  // the stronger players in the smaller courts. Courts of the same size get no strength preference, so
+  // people without a shared past are spread rather than stacked on court 1.
+  const sizesAsc = [...new Set(slotSizes)].sort((a, b) => a - b); const sizeRank = {}; sizesAsc.forEach((sz, i) => { sizeRank[sz] = sizesAsc.length - i; });
+  const famScore = gs => gs.reduce((t, g) => { const ps = g.flat(); let v = 0; for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) v += fam.get(lc(ps[i]), lc(ps[j])); return t + v; }, 0);
+  const strengthScore = gs => sizesAsc.length < 2 ? 0 : gs.reduce((t, g, i) => { const ps = g.flat(); return ps.length ? t + sizeRank[slotSizes[i]] * ps.reduce((x, p) => x + ratingOf(p.name), 0) / ps.length : t; }, 0);
   const partition = () => {
-    const score = gs => gs.reduce((t, g) => { const ps = g.flat(); let v = 0; for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) v += fam.get(lc(ps[i]), lc(ps[j])); return t + v; }, 0);
+    const score = gs => famScore(gs) * 1000 + strengthScore(gs);
     let best = null, bestScore = -1;
     for (let restart = 0; restart < 25; restart++) {
       const gs = slotSizes.map(() => []); const room = slotSizes.slice();
@@ -991,10 +997,9 @@ function generateTeams(ctx, courtsIn) {
   const sameSize = slotSizes.every(x => x === slotSizes[0]);
   let groups;
   if (hasHistory) {
-    // step 1: groups by shared past; step 2: strongest group on the smallest court, overflow spills down
-    groups = partition().sort((a, b) => grate(b) - grate(a));
-    const seq = []; groups.forEach(g => byRating(g).forEach(u => seq.push(u)));
-    groups = cutUnits(seq);
+    // groups stay whole on their court; among courts of the same size the stronger group gets the lower number
+    groups = partition();
+    for (let i = 0; i < groups.length;) { let j = i; while (j < groups.length && slotSizes[j] === slotSizes[i]) j++; const block = groups.slice(i, j).sort((a, b) => grate(b) - grate(a)); for (let k = i; k < j; k++) groups[k] = block[k - i]; i = j; }
   } else groups = sameSize ? partition() : cutUnits(byRating(units));
   const cs = Array.from({ length: nC }, () => []); order.forEach((c, i) => { cs[c] = groups[i].flat(); });
   // step 3: split each court into two teams with the closest average level
@@ -1563,12 +1568,12 @@ function rosterCourtsHTML(ctx) {
   const status = !cap ? '<div class="note bad">This session has no roster count. Set it in the session form first.</div>'
     : ok ? '<div class="note ok">' + esc(courtsLabel(list)) + ': room for exactly ' + cap + ' players.</div>'
     : '<div class="note bad">These courts hold <b>' + hold + '</b> players, but the roster is <b>' + cap + '</b>. ' + (hold < cap ? 'Add room for ' + (cap - hold) + ' more.' : 'That is ' + (hold - cap) + ' too many.') + (cap % 2 ? ' An odd roster count can never match; change it in the session form.' : '') + '</div>';
-  return '<div class="stack"><div class="small muted">How many courts of each type? The roster has <b>' + cap + '</b> spots' + (paid !== cap ? ' (' + paid + ' paid so far)' : '') + '. People who often played together are grouped first; the stronger groups get the smaller courts.</div><div class="grid2">' + rows + '</div>' + status +
+  return '<div class="stack"><div class="small muted">How many courts of each type? The roster has <b>' + cap + '</b> spots' + (paid !== cap ? ' (' + paid + ' paid so far)' : '') + '. People who often played together are grouped first and stay together on one court; strength only decides among what is left.</div><div class="grid2">' + rows + '</div>' + status +
     '<div class="actions"><button type="button" class="btn sm" data-act="roster-generate"' + (ok ? '' : ' disabled') + '>Generate teams</button><button type="button" class="btn sm ghost" data-act="roster-close">Cancel</button></div></div>';
 }
 function rosterHowHTML(ctx, courts) {
   const f = familiarity(ctx); const cl = courts || rosterCourtsFor(ctx); const sizes = new Set(cl.map(courtSize)); const multi = cl.length > 1;
-  return (multi ? (f.sessions ? 'People who often played together are grouped first (from ' + f.sessions + ' past session' + (f.sessions === 1 ? '' : 's') + ' with saved teams)' + (sizes.size > 1 ? ', and the stronger groups take the smaller courts' : '') + '; ' : (sizes.size > 1 ? 'no saved teams from past sessions yet, so the strongest players (by rating) go to the smallest courts; ' : 'no saved teams from past sessions yet, so courts are mixed randomly; ')) : '') + 'teams are split so their average levels are as close as possible.';
+  return (multi ? (f.sessions ? 'People who often played together are grouped first and each group stays on one court (from ' + f.sessions + ' past session' + (f.sessions === 1 ? '' : 's') + ' with saved teams)' + (sizes.size > 1 ? '; players without a shared past go to the smaller courts when they are stronger' : '; the stronger group gets the lower court number') + '; ' : (sizes.size > 1 ? 'no saved teams from past sessions yet, so the strongest players (by rating) go to the smallest courts; ' : 'no saved teams from past sessions yet, so courts are mixed randomly; ')) : '') + 'teams are split so their average levels are as close as possible.';
 }
 function rosterEditorHTML(ctx) {
   const r = U().roster; const teams = draftFor(ctx) || []; const courts = rosterCourtsFor(ctx);
