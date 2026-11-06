@@ -180,6 +180,9 @@ details.help{font-size:14px}
 .banner{display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap}
 .tip{font-size:12.5px; color:var(--muted); margin-top:4px}
 .msec{font-size:.85em; opacity:.7}
+.cd{display:flex; flex-direction:column; gap:2px; padding:12px 14px; border-radius:var(--radius); background:var(--soft)}
+.cdl{font:600 12px/1 var(--body); letter-spacing:.09em; text-transform:uppercase; color:var(--muted)}
+.cdn{font:700 40px/1.1 var(--display); font-variant-numeric:tabular-nums; letter-spacing:.02em; color:var(--court)}
 .dotlive{width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto}
 .dotlive.live{background:var(--ok)}
 .dotlive.offline,.dotlive.demo{background:var(--zone)}
@@ -276,8 +279,10 @@ function courtSummary(ev) {
    contacts/{signupId}   { email, sessionId }        organizers only
    ratings/{nameLower}   { name, r }  ratings/_pairs { together, apart }   organizers only
    admins/{email}        added by hand in the Firebase console */
-function emptyData(mode) { return { mode, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false }; }
-function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', duration: s.duration || 120 }; }
+function emptyData(mode) { return { mode, clockOffset: 0, clockSynced: false, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false }; }
+function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, duration: s.duration || 120 }; }
+// Current time as the server sees it (offset measured against Firestore once logged in; device clock otherwise).
+function now() { return Date.now() + ((S.data && S.data.clockOffset) || 0); }
 // Order is decided by the server clock: Firestore stamps each sign-up on arrival (rules reject any other time).
 // Entries still on their way have no server time yet and sort after all confirmed ones.
 function serverOrder(a, b) {
@@ -389,7 +394,7 @@ function balanceTeams(ctx) {
 
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v8';
+const APP_VERSION = 'v9';
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
@@ -451,13 +456,26 @@ function firebaseBackend(conf) {
       d.ratings = r; d.pairs = pairs; emit();
     }, () => {}));
   }
+  // Measure the difference between this device's clock and Firestore's: write a server timestamp,
+  // read it back, compare with the local time in the middle of the round trip.
+  let clockTimer = null;
+  async function syncClock() {
+    const u = auth.currentUser; if (!u || u.isAnonymous) return;
+    try {
+      const ref = fs.collection('clock').doc(u.uid); const t0 = Date.now();
+      await ref.set({ t: TS() }); const t1 = Date.now();
+      const sn = await ref.get(); const srv = ms((sn.data() || {}).t);
+      if (srv) { d.clockOffset = srv - Math.round((t0 + t1) / 2); d.clockSynced = true; emit(); }
+    } catch (e) {}
+    clearTimeout(clockTimer); clockTimer = setTimeout(syncClock, 10 * 60e3);
+  }
   async function setUser(u) {
     if (unsubProfile) { unsubProfile(); unsubProfile = null; }
     if (!u || u.isAnonymous) { d.user = null; d.profile = null; d.profileLoaded = true; adminSubs(); emit(); return; }
     const user = { uid: u.uid, email: u.email || '', displayName: u.displayName || '', isAdmin: false, provider: (u.providerData && u.providerData[0] && u.providerData[0].providerId) || '' };
     d.profileLoaded = false; d.profile = null;
     if (u.email) { try { const s = await fs.collection('admins').doc(u.email).get(); user.isAdmin = !!s.exists; } catch (e) { user.isAdmin = false; } }
-    d.user = user; d.authError = ''; adminSubs();
+    d.user = user; d.authError = ''; adminSubs(); syncClock();
     unsubProfile = fs.collection('players').doc(u.uid).onSnapshot(s => { d.profile = s.exists ? (s.data() || {}) : null; d.profileLoaded = true; emit(); if (d.profile) claimName(u.uid, d.profile.name); }, () => { d.profileLoaded = true; emit(); });
     emit();
   }
@@ -491,10 +509,11 @@ function firebaseBackend(conf) {
       fs = firebase.firestore(); auth = firebase.auth();
       fs.collection('config').doc('app').onSnapshot(s => { d.config = s.exists ? (s.data() || {}) : {}; d.configLoaded = true; resubSignups(); emit(); }, readFail);
       fs.collection('sessions').onSnapshot({ includeMetadataChanges: true }, snap => {
-        d.sessions = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'estimate' }) || {}; const o = Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), playedAt: ms(v.playedAt) }); delete o.opensAtTs; return o; });
+        d.sessions = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'estimate' }) || {}; const o = Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), playedAt: ms(v.playedAt), opensAtMs: ms(v.opensAtTs) || 0 }); delete o.opensAtTs; return o; });
         d.sessionsLoaded = true; d.status = snap.metadata.fromCache ? 'offline' : 'live'; d.error = ''; emit();
       }, readFail);
       auth.onAuthStateChanged(u => { setUser(u); });
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) syncClock(); });
       try { await auth.getRedirectResult(); } catch (e) { d.authError = fbExplain(e, 'auth'); emit(); }
     },
     async join({ sessionId, name }) {
@@ -576,7 +595,7 @@ function localBackend() {
   const err = (code, msg) => Object.assign(new Error(msg), { code });
   const snapshot = () => {
     const d = emptyData('local'); d.status = 'local'; d.configLoaded = d.sessionsLoaded = true; d.example = !!db.example;
-    d.config = copy(db.config); d.sessions = Object.values(copy(db.sessions)); d.signups = Object.values(copy(db.signups));
+    d.config = copy(db.config); d.sessions = Object.values(copy(db.sessions)).map(x => { const t = x.opensAt ? new Date(x.opensAt) : null; x.opensAtMs = t && !isNaN(t) ? t.getTime() : 0; return x; }); d.signups = Object.values(copy(db.signups)); d.clockSynced = true;
     d.contacts = admin ? copy(db.contacts) : {}; d.ratings = admin ? copy(db.ratings) : {}; d.players = admin ? copy(db.players) : {}; d.pairs = admin ? copy(db.pairs) : { together: '', apart: '' };
     const acc = session && db.accounts[session];
     if (acc) { d.user = { uid: acc.uid, email: acc.email, displayName: acc.name || '', isAdmin: admin, provider: acc.provider }; d.profile = db.players[acc.uid] ? copy(db.players[acc.uid]) : null; }
@@ -943,8 +962,24 @@ function finalRosterHTML(vm) {
     (r.b && r.b.length ? '<div class="note"><b>Bench:</b> ' + esc(r.b.join(', ')) + '</div>' : '') +
     '<div class="actions"><a class="btn sm outline" href="https://wa.me/?text=' + encodeURIComponent(rosterText(data)) + '" target="_blank" rel="noopener">Share on WhatsApp</a><button type="button" class="btn sm ghost" data-act="copy-final">Copy as text</button></div></div></section>';
 }
-function opensAtDate(ev) { if (!ev || !ev.opensAt) return null; const d = new Date(ev.opensAt); return isNaN(d) ? null : d; }
-function signupsOpen(ev) { const d = opensAtDate(ev); return !d || Date.now() >= d.getTime(); }
+function opensAtMs(ev) { if (!ev) return 0; if (ev.opensAtMs) return ev.opensAtMs; if (!ev.opensAt) return 0; const d = new Date(ev.opensAt); return isNaN(d) ? 0 : d.getTime(); }
+function opensAtDate(ev) { const t = opensAtMs(ev); return t ? new Date(t) : null; }
+function signupsOpen(ev) { const t = opensAtMs(ev); return !t || now() >= t; }
+function fmtCountdown(msLeft) {
+  if (msLeft <= 0) return 'now'; const s = Math.ceil(msLeft / 1000);
+  const dd = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return (dd ? dd + 'd ' : '') + pad(h) + ':' + pad(m) + ':' + pad(sec);
+}
+function countdownHTML(ev) {
+  const left = opensAtMs(ev) - now();
+  return '<div class="cd"><div class="cdl">Sign-ups open in</div><div class="cdn" id="countdown" data-open="' + opensAtMs(ev) + '">' + fmtCountdown(left) + '</div><div class="small muted">' + esc(fmtWhen(opensAtDate(ev))) + (S.data.clockSynced ? ' · synced with the server clock' : (loggedIn() ? '' : ' · log in to sync with the server clock')) + '</div></div>';
+}
+function tickCountdown() {
+  const el = $('#countdown'); if (!el) return;
+  const left = +el.dataset.open - now();
+  if (left <= 0) { S.lastHTML = ''; render(); return; }
+  el.textContent = fmtCountdown(left);
+}
 function fmtWhen(d) { return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
 function calStamp(d) { return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + 'T' + pad(d.getHours()) + pad(d.getMinutes()) + '00'; }
 function calRange(ev) { const start = eventDateObj(ev); if (!start) return null; const end = new Date(start.getTime() + (parseInt(ev.duration, 10) || 120) * 60e3); return { start, end }; }
@@ -985,12 +1020,12 @@ function meHTML(vm) {
   const full = vm.attendees.length >= vm.capacity; const opens = opensAtDate(ev); const closed = !signupsOpen(ev);
   const mine = S.data.user ? (S.data.signups || []).find(x => x.sessionId === vm.eventId && x.uid === S.data.user.uid && x.addedBy === 'self') : null; const removed = !!(mine && mine.status === 'removed');
   const myName = (S.data.profile && S.data.profile.name) || '';
-  const head = closed ? '<h3>Sign-ups open ' + esc(fmtWhen(opens)) + '</h3><p class="muted small">' + vm.capacity + ' spots, first come first served from that moment. The button appears here when it opens.</p>'
+  const head = closed ? '<h3>Not open yet</h3><p class="muted small">' + vm.capacity + ' spots, first come first served from the moment it opens. The server decides the order, so a changed clock on a phone makes no difference.</p>' + countdownHTML(ev)
     : '<h3>' + (full ? 'Full · join the bench' : 'Join this session') + '</h3><p class="muted small">' + (full ? 'You\'ll be B' + (vm.bench.length + 1) + ' and move up when someone leaves.' : (vm.capacity - vm.attendees.length) + ' spot' + (vm.capacity - vm.attendees.length === 1 ? '' : 's') + ' left. First come, first served.') + '</p>';
   let btn;
-  if (!loggedIn()) btn = '<button type="button" class="btn big" data-act="auth-open">Log in to join</button><div class="actions small"><span class="muted">No account yet?</span><button type="button" class="link" data-act="auth-open" data-mode="register">Create one</button></div>';
+  if (!loggedIn()) btn = '<button type="button" class="btn big" data-act="auth-open">' + (closed ? 'Log in now, so you\'re ready' : 'Log in to join') + '</button><div class="actions small"><span class="muted">No account yet?</span><button type="button" class="link" data-act="auth-open" data-mode="register">Create one</button></div>';
   else if (removed) btn = '<div class="note">The organizer took you off this session\'s list. Message them if that\'s a mistake.</div>';
-  else if (closed) btn = '<button type="button" class="btn big" disabled>Opens ' + esc(fmtWhen(opens)) + '</button>';
+  else if (closed) btn = '<button type="button" class="btn big" disabled>Join button appears when it opens</button><p class="small muted">You\'re logged in as ' + esc(myName) + '. Keep this page open; it switches to the Join button by itself.</p>';
   else btn = '<button type="button" class="btn big" data-act="join"' + (ui.joining ? ' disabled' : '') + '>' + (ui.joining ? 'Saving…' : (full ? 'Put me on the bench' : 'Join as ' + esc(myName))) + '</button>';
   return '<section class="card"><div class="stack"><div>' + head + '</div>' + (ui.joinErr ? '<div class="note bad">' + esc(ui.joinErr) + '</div>' : '') + btn + calendarHTML(ev) + '</div></section>';
 }
@@ -1080,7 +1115,7 @@ function announceText(vm) {
   L.push([courtSummary(ev), vm.capacity + ' spots', ev.price ? ev.price + ' per person' : ''].filter(Boolean).join(', ') + '.');
   if (S.cfg.pageUrl) L.push('Sign up: ' + S.cfg.pageUrl);
   L.push('First come, first served. Extras go on the bench and move up if someone drops out.');
-  const o = opensAtDate(ev); if (o && o.getTime() > Date.now()) L.push('Sign-ups open ' + fmtWhen(o) + '.');
+  const o = opensAtDate(ev); if (o && o.getTime() > now()) L.push('Sign-ups open ' + fmtWhen(o) + '.');
   if (ev.note) L.push(ev.note);
   return L.join('\n');
 }
@@ -1190,7 +1225,7 @@ function render() {
   if (html === S.lastHTML) { paintStatus(); return; }
   if (inputFocused()) { S.renderPending = true; paintStatus(); return; }
   S.renderPending = false; S.lastHTML = html; $('#app').innerHTML = html; paintStatus();
-  S.openState = S.vm.event && S.vm.event.opensAt ? signupsOpen(S.vm.event) : undefined;
+  S.openState = S.vm.event && opensAtMs(S.vm.event) ? signupsOpen(S.vm.event) : undefined;
 }
 function uiCourts(e) {
   const n4 = Math.min(8, Math.max(0, parseInt(e && e.c4, 10) || 0)), n3 = Math.min(8, Math.max(0, parseInt(e && e.c3, 10) || 0));
@@ -1226,7 +1261,15 @@ const actions = {
     const clash = S.vm.attendees.find(p => nameKey(p.name) === nameKey(name));
     if (clash) { ui.joinErr = 'There is already a ' + clash.name + ' on the list. If that is you from another account, log in with that account instead; otherwise ask the organizer.'; render(); return; }
     ui.joining = true; render();
-    await run(() => B.join({ sessionId: S.vm.eventId, name }), 'join');
+    const openAt = opensAtMs(S.vm.event);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try { await B.join({ sessionId: S.vm.eventId, name }); break; }
+      catch (e) {
+        const nearOpen = openAt && Math.abs(now() - openAt) < 15000;
+        if (/permission-denied/.test(String(e && e.code)) && nearOpen && attempt < 4) { await new Promise(r => setTimeout(r, 500)); continue; }
+        toast(S.data.mode === 'firebase' ? fbExplain(e, 'join') : ((e && e.message) || 'Something went wrong')); break;
+      }
+    }
     ui.joining = false; render();
   },
   'auth-open': (el) => { const ui = U(); ui.authOpen = true; ui.authMode = (el && el.dataset && el.dataset.mode) || 'login'; ui.authErr = ''; ui.authInfo = ''; window.scrollTo(0, 0); render(); },
@@ -1381,7 +1424,8 @@ function init() {
   app.addEventListener('toggle', e => { const d = e.target; if (d && d.classList && d.classList.contains('hist') && d.dataset.id) { if (d.open) U().histOpenIds[d.dataset.id] = true; else delete U().histOpenIds[d.dataset.id]; } }, true);
   app.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'addName') { actions['add-player'](); } if (e.key === 'Enter' && e.target.id === 'auPass') { actions[U().authMode === 'register' ? 'auth-register' : 'auth-login'](); } });
   app.addEventListener('focusout', () => { if (S.renderPending) setTimeout(() => { if (S.renderPending && !inputFocused()) render(); }, 350); });
-  setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && ev.opensAt && S.openState !== (Date.now() >= new Date(ev.opensAt).getTime())) render(); else paintStatus(); }, 5000);
+  setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && opensAtMs(ev) && S.openState !== signupsOpen(ev)) { S.lastHTML = ''; render(); } else paintStatus(); }, 5000);
+  setInterval(() => { if (!document.hidden) tickCountdown(); }, 1000);
   B.start(onData);
   checkForUpdate();
 }

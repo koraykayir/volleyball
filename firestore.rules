@@ -34,6 +34,14 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Clock check: each logged-in person writes a server timestamp here and reads it back,
+    // to show countdowns in server time. Private to that person.
+    match /clock/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t == request.time;
+    }
+
     // Claimed display names, one per account: makes names unique across the group.
     // Create-only, so two people cannot end up with the same name (the batch of the second one fails).
     match /names/{key} {
