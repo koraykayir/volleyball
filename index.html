@@ -394,7 +394,7 @@ function balanceTeams(ctx) {
 
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v9';
+const APP_VERSION = 'v10';
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
@@ -1428,6 +1428,16 @@ function init() {
   setInterval(() => { if (!document.hidden) tickCountdown(); }, 1000);
   B.start(onData);
   checkForUpdate();
+  // Demo helper: open the demo page with #countdown to make the current session open 3 minutes from now.
+  if (B.mode === 'local' && location.hash === '#countdown') {
+    setTimeout(async () => {
+      const sid = S.vm && S.vm.eventId; if (!sid) return;
+      const o = new Date(Date.now() + 3 * 60e3);
+      await B.updateSession(sid, { opensAt: localDateStr(o) + 'T' + pad(o.getHours()) + ':' + pad(o.getMinutes()) + ':' + pad(o.getSeconds()) });
+      try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      S.lastHTML = ''; render(); toast('Demo: sign-ups open in 3 minutes');
+    }, 400);
+  }
 }
 /* GitHub Pages and browsers like to keep an old copy of this file. Ask the server for the current
    version tag; if it differs from ours, reload once (not more, so a stale cache can't cause a loop). */
