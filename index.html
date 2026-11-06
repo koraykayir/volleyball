@@ -399,7 +399,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v13';
+const APP_VERSION = 'v14';
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
@@ -1181,9 +1181,7 @@ function rowHTML(p, label, vm, benchRow) {
     if (vm.played) right.push('<label class="chk"><input type="checkbox" data-act="noshow-toggle" data-key="' + esc(p.key) + '"' + (p.noshow ? ' checked' : '') + '> no-show</label>');
     right.push('<label class="chk"><input type="checkbox" data-act="paid-toggle" data-key="' + esc(p.key) + '"' + (p.paid ? ' checked' : '') + '> paid</label>');
     if (!p.leaving) right.push(U().removeConfirm === p.key ? '<button type="button" class="btn xs danger" data-act="remove-yes" data-key="' + esc(p.key) + '">Remove</button><button type="button" class="btn xs ghost" data-act="remove-no">Keep</button>' : '<button type="button" class="btn xs ghost" data-act="remove-ask" data-key="' + esc(p.key) + '" title="Remove from list">×</button>');
-  } else {
-    right.push(p.paid ? '<span class="pill ok">paid</span>' : (p.pending ? '<span class="pill pend">pending</span>' : ''));
-  }
+  } else if (p.pending) right.push('<span class="pill pend">pending</span>');
   return '<div class="row' + (p.pending ? ' pending' : '') + (p.leaving ? ' leaving' : '') + '"><div class="pos">' + label + '</div><div class="who"><div class="n">' + esc(p.name) + (p.guestOf && vm.people.get(p.guestOf) ? ' <span class="muted small">· guest of ' + esc(vm.people.get(p.guestOf).name) + '</span>' : '') + '</div>' + (org && p.email ? '<div class="e">' + esc(p.email) + '</div>' : '') + ((p.ts || p.pending) ? '<div class="t">' + (p.pending ? 'saving…' : 'joined ' + joinStamp(p)) + '</div>' : '') + (p.leaving && !org ? '<div class="t leaving">wants to leave · waiting for an organizer</div>' : '') + '</div><div class="right">' + right.join('') + '</div>' +
     (p.leaving && org ? '<div class="decide"><span>Wants to leave.</span><button type="button" class="btn xs" data-act="leave-approve" data-key="' + esc(p.key) + '">Let go</button><button type="button" class="btn xs ghost" data-act="leave-decline" data-key="' + esc(p.key) + '">Keep on the list</button></div>' : '') + '</div>';
 }
@@ -1225,7 +1223,7 @@ function historyHTML(vm) {
     else if (s.roster && Array.isArray(s.roster.t)) teams = '<div class="hroster"><div class="small muted">Teams · ' + esc(courtsLabel(rosterCourtsOf(s.roster) || courtList(ev))) + '</div>' + courtsHTML(teamsFromNames(ctx, s.roster.t), { edit: false, flag: false }, ctx, rosterCourtsOf(s.roster) || courtList(ev)) + (isOrg() ? '<div class="actions"><button type="button" class="btn xs ghost" data-act="roster-open" data-id="' + esc(s.id) + '">Edit teams</button></div>' : '') + '</div>';
     else teams = '<div class="hroster"><span class="small muted">No teams stored for this session.</span>' + (isOrg() ? '<div class="actions"><button type="button" class="btn xs outline" data-act="roster-open" data-id="' + esc(s.id) + '">Set teams</button></div>' : '') + '</div>';
     return '<details class="hist" data-id="' + esc(s.id) + '"' + (editing || ui.histOpenIds[s.id] ? ' open' : '') + '><summary><span>' + esc(fmtEventDate(ev)) + (ev.time ? ' ' + esc(ev.time) : '') + (ev.place ? ' · ' + esc(ev.place) : '') + '</span><span class="cnt">' + (playing.length - noshows) + ' played' + (noshows ? ', ' + noshows + ' no-show' : '') + (bench.length ? ', ' + bench.length + ' bench' : '') + (s.roster ? ' · teams' : '') + (s.played ? '' : ' · not marked as played') + '</span></summary>' +
-      '<div class="hbody">' + (courtSummary(ev) ? '<div class="small muted">' + esc(courtSummary(ev)) + ' · ' + att.filter(a => a.paid).length + ' paid</div>' : '') + '<ol>' + playing.map(a => '<li>' + esc(a.name) + (a.noshow ? ' <span class="pill" style="color:var(--bad);background:var(--bad-soft)">no-show</span>' : '') + (a.paid ? ' <span class="pill ok">paid</span>' : '') + '</li>').join('') + '</ol>' +
+      '<div class="hbody">' + (courtSummary(ev) ? '<div class="small muted">' + esc(courtSummary(ev)) + (isOrg() ? ' · ' + att.filter(a => a.paid).length + ' paid' : '') + '</div>' : '') + '<ol>' + playing.map(a => '<li>' + esc(a.name) + (a.noshow ? ' <span class="pill" style="color:var(--bad);background:var(--bad-soft)">no-show</span>' : '') + (a.paid && isOrg() ? ' <span class="pill ok">paid</span>' : '') + '</li>').join('') + '</ol>' +
       (bench.length ? '<div class="small muted">Bench: ' + esc(bench.map(a => a.name).join(', ')) + '</div>' : '') + teams + '</div></details>';
   }).join('');
   return '<section>' + head + '<div class="histlist">' + statsHTML(vm) + items + '</div><div class="actions" style="margin-top:10px"><button type="button" class="btn sm ghost" data-act="hist-toggle">Hide</button></div></section>';

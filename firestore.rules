@@ -110,6 +110,7 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && exists(/databases/$(database)/documents/players/$(request.auth.uid))
         && validName(request.resource.data.name)
+        && request.resource.data.name == profileAfter(request.auth.uid).name
         && request.resource.data.status == 'active'
         && request.resource.data.paid == false && request.resource.data.noshow == false
         && request.resource.data.guestOf == '' && request.resource.data.addedBy == 'self'
@@ -144,7 +145,7 @@ service cloud.firestore {
           (resource.data.status == 'left'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'createdAt', 'name'])
             && request.resource.data.status == 'active' && request.resource.data.createdAt == request.time
-            && validName(request.resource.data.name)
+            && request.resource.data.name == profileAfter(request.auth.uid).name
             && sessionOpen(resource.data.sessionId))
         ));
       allow delete: if isAdmin();
