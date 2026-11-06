@@ -152,7 +152,8 @@ label.f{display:block; font-size:12.5px; font-weight:600; color:var(--muted); ma
 .org{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px; display:flex; flex-direction:column; gap:22px}
 .org .sub{display:flex; flex-direction:column; gap:10px}
 .org .sub > .sec{margin:0}
-.orghead{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.orghead{display:flex; align-items:center; justify-content:space-between; gap:8px 10px; flex-wrap:wrap}
+.orghead .orgbtns{display:flex; gap:6px; margin-left:auto}
 .orghead h3{font:700 24px/1 var(--display); letter-spacing:.01em}
 .steps{margin:0; padding-left:20px; font-size:14px; display:flex; flex-direction:column; gap:6px}
 .steps code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; background:var(--soft); padding:1px 5px; border-radius:4px}
@@ -221,7 +222,7 @@ details.help{font-size:14px}
 .dotlive.offline,.dotlive.demo{background:var(--zone)}
 .dotlive.error{background:var(--bad)}
 .status.bad{color:var(--bad)}
-.orghead .orgwho{flex:1 1 auto; text-align:right; overflow-wrap:anywhere}
+.orghead .orgwho{flex:1 1 100%; overflow-wrap:anywhere; margin-top:-4px}
 .status .acct{overflow-wrap:anywhere; text-align:right}
 .authcard h3{font:700 26px/1.1 var(--display)}
 .levels{display:grid; grid-template-columns:repeat(5,1fr); gap:6px}
@@ -426,7 +427,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v17'; // build tag for the self-update check
+const APP_VERSION = 'v18'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
@@ -1438,7 +1439,7 @@ function orgHTML(vm) {
     if (!ui.orgOpen) return '<div class="actions"><button type="button" class="link" data-act="org-open">Organizer (demo)</button></div>';
     return '<section class="card"><div class="stack"><h3>Organizer tools</h3><p class="muted small">This copy runs in demo mode on this device, so the organizer tools open without a login. On the live page the organizer just logs in with the account on the organizer list.</p><div class="actions"><button type="button" class="btn sm" data-act="org-demo">Open organizer tools</button><button type="button" class="btn sm ghost" data-act="org-cancel">Cancel</button></div></div></section>';
   }
-  return '<section class="org"><div class="orghead"><h3>Organizer</h3><span class="small muted orgwho">' + esc(d.user.email) + '</span><button type="button" class="btn xs ghost" data-act="log-open">Activity log</button></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
+  return '<section class="org"><div class="orghead"><h3>Organizer</h3><span class="orgbtns"><button type="button" class="btn xs ghost" data-act="log-open">Activity log</button><a class="btn xs ghost" href="' + esc(guideUrl()) + '" target="_blank" rel="noopener">Guide</a></span><span class="small muted orgwho">' + esc(d.user.email) + '</span></div>' + eventFormHTML(vm) + rosterSectionHTML(vm) + setupHTML() + '</section>';
 }
 function eventFormHTML(vm) {
   const ui = U(); const ev = ui.ev || {}; const cap = uiCap(ev); const bench = uiBench(ev);
@@ -1589,11 +1590,13 @@ function rosterEditorHTML(ctx) {
     '<div class="hr"></div><div class="small muted">Export</div>' +
     '<div class="actions"><a class="btn sm" href="https://wa.me/?text=' + encodeURIComponent(rosterText(data)) + '" target="_blank" rel="noopener" data-act="export-wa">Share on WhatsApp</a><button type="button" class="btn sm ghost" data-act="export-copy">Copy as text</button><button type="button" class="btn sm ghost" data-act="export-pdf">PDF</button><button type="button" class="btn sm ghost" data-act="export-html">HTML file</button>' + rosterMailHTML(ctx) + '</div></div>';
 }
+// The organizer guide lives next to the page (guide/); the demo copy points one level up.
+function guideUrl() { return /\/demo\/(index\.html)?$/.test(location.pathname) ? '../guide/' : 'guide/'; }
 function setupHTML() {
   const ui = U(); const d = S.data;
   const conn = d.mode === 'local' ? '<div class="note">Demo mode: everything is stored on this device only.</div>' : '<div class="note ok">Connected to Firebase project <code>' + esc(B.projectId) + '</code>. Changes reach everyone instantly.</div>';
   const demo = d.mode === 'local' ? '<div class="actions">' + (ui.clearConfirm ? '<span class="small">Reset the demo data on this device?</span><button type="button" class="btn sm danger" data-act="clear-yes">Reset</button><button type="button" class="btn sm ghost" data-act="clear-no">Cancel</button>' : '<button type="button" class="btn xs danger" data-act="clear-ask">Reset demo data</button>') + '</div>' : '';
-  if (!ui.setupOpen) return '<div class="sub"><h2 class="sec">Settings</h2>' + conn + '<div class="actions"><button type="button" class="btn sm ghost" data-act="setup-toggle">Edit group settings</button></div>' + demo + '</div>';
+  if (!ui.setupOpen) return '<div class="sub"><h2 class="sec">Settings</h2>' + conn + '<div class="actions"><button type="button" class="btn sm ghost" data-act="setup-toggle">Edit group settings</button><a class="btn sm ghost" href="' + esc(guideUrl()) + '" target="_blank" rel="noopener">Organizer guide</a></div>' + demo + '</div>';
   return '<div class="sub"><h2 class="sec">Settings</h2>' + conn +
     '<div class="grid2"><div class="field"><label class="f" for="suTitle">Group name</label><input class="inp" id="suTitle" data-ui="suTitle" value="' + esc(ui.suTitle) + '" placeholder="Volleyball"></div><div class="field"><label class="f" for="suOrganizer">Organizer name (shown next to the price)</label><input class="inp" id="suOrganizer" data-ui="suOrganizer" value="' + esc(ui.suOrganizer) + '"></div></div>' +
     '<div class="field"><label class="f" for="suPageUrl">Public link of this page (used in the announcement and calendar)</label><input class="inp" id="suPageUrl" data-ui="suPageUrl" value="' + esc(ui.suPageUrl) + '" placeholder="https://…"></div>' +

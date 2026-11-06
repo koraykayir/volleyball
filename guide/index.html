@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Organizer guide · Volleyball sign-up</title>
+<meta name="description" content="How to run the weekly volleyball sessions with the sign-up page: sessions, announcements, the list, leave requests, payments, roster, history, activity log, settings, troubleshooting.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#1E4FD6">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --fg:#141B2B; --muted:#5B6578; --line:#D8DDE7; --soft:#E9EDF5;
+  --court:#1E4FD6; --court-ink:#FFFFFF; --zone:#E8651A; --zone-soft:#FDEEE3; --ok:#178A4C; --ok-soft:#E3F4E9; --bad:#C0392B; --bad-soft:#FBE7E4;
+  --display:"Barlow Condensed","Arial Narrow","Roboto Condensed",Impact,sans-serif; --body:Barlow,"Helvetica Neue",Arial,sans-serif; --radius:8px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#0F1522; --surface:#171F31; --fg:#ECEFF6; --muted:#9AA5BC; --line:#2B354A; --soft:#1F2940; --court:#2F62E8; --zone:#FF8A3D; --zone-soft:#3A2415; --ok:#3DBD74; --ok-soft:#14301F; --bad:#F0705F; --bad-soft:#3B1C19; color-scheme:dark } }
+:root[data-theme="dark"]{ --bg:#0F1522; --surface:#171F31; --fg:#ECEFF6; --muted:#9AA5BC; --line:#2B354A; --soft:#1F2940; --court:#2F62E8; --zone:#FF8A3D; --zone-soft:#3A2415; --ok:#3DBD74; --ok-soft:#14301F; --bad:#F0705F; --bad-soft:#3B1C19; color-scheme:dark }
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg); color:var(--fg); font:16px/1.5 var(--body); -webkit-text-size-adjust:100%}
+a{color:var(--court)}
+.band{background:var(--court); color:var(--court-ink)}
+.band .in{max-width:760px; margin:0 auto; padding:18px 16px 22px}
+.kicker{font:600 12px/1 var(--body); letter-spacing:.12em; text-transform:uppercase; opacity:.85}
+h1{font:700 34px/1.05 var(--display); margin:8px 0 6px; letter-spacing:.01em}
+.band p{margin:0; opacity:.92; font-size:15px}
+.wrap{max-width:760px; margin:0 auto; padding:16px 16px 64px}
+nav.toc{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; margin-bottom:22px}
+nav.toc h2{margin:0 0 8px; font:600 12.5px/1 var(--body); letter-spacing:.09em; text-transform:uppercase; color:var(--muted)}
+nav.toc ol{margin:0; padding-left:20px; columns:2; column-gap:24px; font-size:15px}
+nav.toc li{break-inside:avoid; margin:2px 0}
+@media (max-width:520px){ nav.toc ol{columns:1} }
+section.s{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin:0 0 18px}
+h2{font:700 24px/1.1 var(--display); margin:0 0 10px; letter-spacing:.01em}
+h3{font:600 16px/1.3 var(--body); margin:18px 0 6px}
+p{margin:0 0 10px}
+ul,ol{margin:0 0 10px; padding-left:22px}
+li{margin:3px 0}
+.muted{color:var(--muted)}
+.small{font-size:14px}
+.note{font-size:14px; color:var(--muted); background:var(--soft); padding:10px 12px; border-radius:var(--radius); margin:10px 0}
+.note.warn{background:var(--zone-soft); color:var(--fg)}
+.note.ok{background:var(--ok-soft); color:var(--fg)}
+.note b{color:var(--fg)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13.5px; background:var(--soft); padding:1px 5px; border-radius:4px}
+.figs{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; margin:12px 0}
+figure{margin:0; flex:1 1 220px; max-width:340px}
+figure.wide{max-width:420px}
+figure img{width:100%; height:auto; border:1px solid var(--line); border-radius:8px; display:block; background:#fff}
+figcaption{font-size:13px; color:var(--muted); margin-top:5px; line-height:1.35}
+table{border-collapse:collapse; width:100%; font-size:14.5px; margin:8px 0 12px}
+th,td{text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top}
+th{font:600 12px/1.4 var(--body); letter-spacing:.06em; text-transform:uppercase; color:var(--muted)}
+.steps{counter-reset:step; padding-left:0; list-style:none}
+.steps li{position:relative; padding-left:36px; margin:8px 0}
+.steps li::before{counter-increment:step; content:counter(step); position:absolute; left:0; top:1px; width:26px; height:26px; border-radius:50%; background:var(--court); color:var(--court-ink); font:700 14px/26px var(--display); text-align:center}
+.pill{display:inline-block; font:500 12px/1 var(--body); padding:4px 8px; border-radius:999px; background:var(--soft); color:var(--muted); white-space:nowrap; vertical-align:middle}
+.pill.warn{background:var(--zone-soft); color:var(--zone)}
+.pill.ok{background:var(--ok-soft); color:var(--ok)}
+.back{display:inline-block; margin-top:8px; font-weight:600}
+footer{color:var(--muted); font-size:13px; margin-top:24px}
+</style>
+</head>
+<body>
+<header class="band"><div class="in">
+  <div class="kicker">Volleyball sign-up · Organizer guide</div>
+  <h1>Running the weekly session from the page</h1>
+  <p>Everything an organizer can do, in the order of a normal week. Players need none of this; the page explains itself to them.</p>
+</div></header>
+
+<div class="wrap">
+<nav class="toc"><h2>Contents</h2><ol>
+  <li><a href="#start">Getting started</a></li>
+  <li><a href="#week">The weekly routine</a></li>
+  <li><a href="#session">Sessions</a></li>
+  <li><a href="#announce">Announcement, link and QR</a></li>
+  <li><a href="#list">The list</a></li>
+  <li><a href="#leave">Leave requests</a></li>
+  <li><a href="#pay">Payments</a></li>
+  <li><a href="#roster">Roster and teams</a></li>
+  <li><a href="#played">After the game</a></li>
+  <li><a href="#history">History and attendance</a></li>
+  <li><a href="#log">Activity log</a></li>
+  <li><a href="#accounts">Accounts and levels</a></li>
+  <li><a href="#settings">Settings</a></li>
+  <li><a href="#players">What players see and do</a></li>
+  <li><a href="#rules">Rules in short</a></li>
+  <li><a href="#trouble">Troubleshooting</a></li>
+  <li><a href="#demo">Demo page</a></li>
+</ol></nav>
+
+<section class="s" id="start">
+<h2>1. Getting started</h2>
+<p>The page is one address for everyone: <b>koraykayir.github.io/volleyball/</b>. Players see the list and join; organizers see the same page plus an <b>Organizer</b> panel at the bottom.</p>
+<h3>Becoming an organizer</h3>
+<ol>
+  <li>Log in with the Google account that is on the organizer list (the <code>admins</code> collection in the Firebase console: one document per organizer, the document ID is the Google email in lowercase).</li>
+  <li>The first time, the page asks for your name and level like for any player, because organizers also play.</li>
+  <li>From then on the status line says <span class="pill">Gürkan · organizer</span> and the Organizer panel appears below the list.</li>
+</ol>
+<div class="figs">
+  <figure class="wide"><img src="img/org-panel-head.png" alt="Organizer panel header"><figcaption>Top of the Organizer panel: Activity log and this guide.</figcaption></figure>
+  <figure class="wide"><img src="img/org-panel-full.png" alt="The whole organizer panel"><figcaption>The panel, top to bottom: Session, Announcement, Payments, Final roster, Settings.</figcaption></figure>
+</div>
+<div class="note">Several organizers can exist; any of them can do everything described here. The page updates live for everyone, so two organizers can work at the same time.</div>
+</section>
+
+<section class="s" id="week">
+<h2>2. The weekly routine</h2>
+<ol class="steps">
+  <li><b>Start the session.</b> In the Organizer panel, fill in the session (or tap "Same as last time, +7 days") and tap "Start the session". After a game, "Start next week's session" does it in one tap.</li>
+  <li><b>Announce it.</b> Share the announcement on WhatsApp (text with the sign-up link, plus the QR image if you like).</li>
+  <li><b>Let people sign up.</b> If you set an opening time, the page shows a countdown and opens by itself. Nothing to do.</li>
+  <li><b>During the week:</b> confirm leave requests when they come in (more than 3 hours before the start), tick payments, add people by hand if needed.</li>
+  <li><b>Before the game:</b> generate the roster (choose the courts, generate, adjust, save) and share it. Everyone sees the saved roster on the page.</li>
+  <li><b>After the game:</b> "Mark as played", tick no-shows, and start next week's session.</li>
+</ol>
+</section>
+
+<section class="s" id="session">
+<h2>3. Sessions</h2>
+<p>A session is one game day. There is always one <b>current</b> session (the list everyone sees); older ones live in <b>Previous sessions</b>.</p>
+<div class="figs">
+  <figure class="wide"><img src="img/org-session-form.png" alt="Session form"><figcaption>The session form in the Organizer panel.</figcaption></figure>
+</div>
+<table>
+<tr><th>Field</th><th>What it does</th></tr>
+<tr><td>Date, Time</td><td>When the game starts. The time matters for the 3-hour leave rule and the calendar links.</td></tr>
+<tr><td>Place</td><td>Shown in the band, the announcement and the calendar entry.</td></tr>
+<tr><td>Indoor / outdoor, Games</td><td>Only used in the announcement ("📍 Sporthalle · Outdoor", "🏐 Mixed games · 3v3 / 4v4"). Leave Games empty and the announcement uses the saved roster's courts, or a sensible default for the roster count.</td></tr>
+<tr><td>Roster (players)</td><td>How many play. The first that many on the list play; must be an even number (teams of equal size).</td></tr>
+<tr><td>Bench (max.)</td><td>How many may wait on the bench. Once roster + bench are taken, nobody else can join. Leave it empty for no limit.</td></tr>
+<tr><td>Price per person</td><td>Shown to players on their card ("Pay 8 € to Gürkan") and in the announcement.</td></tr>
+<tr><td>Sign-ups open at</td><td>Optional. Before that moment the page shows a countdown and refuses joins, enforced by the server, so a changed phone clock does not help anyone. The presets under the field set it to Monday before / 3 days before / 1 week before at 20:00, or clear it.</td></tr>
+<tr><td>Duration</td><td>For the calendar entry.</td></tr>
+<tr><td>Note for players</td><td>Free text, shown in the announcement and the calendar entry.</td></tr>
+</table>
+<h3>Update vs new session</h3>
+<ul>
+  <li><b>Update this session</b> changes the current session in place (list stays). The button is only active when something changed; an odd roster count is flagged and blocked.</li>
+  <li><b>New session (resets the list)</b> moves the current list to Previous sessions (with who played, who paid, no-shows and the saved teams) and starts a fresh empty list. "Same as last time, +7 days" fills the form from the last session first.</li>
+</ul>
+<div class="note warn"><b>Changing the roster count mid-week</b> is fine: the list re-numbers by itself. If you lower it below the number of people already signed up, the extra people move to the bench in joining order.</div>
+</section>
+
+<section class="s" id="announce">
+<h2>4. Announcement, link and QR</h2>
+<div class="figs">
+  <figure class="wide"><img src="img/org-announcement.png" alt="Announcement"><figcaption>The announcement text is built from the session and your settings.</figcaption></figure>
+</div>
+<ul>
+  <li><b>Share on WhatsApp</b> opens WhatsApp with the text; <b>Copy text</b> and <b>Copy link</b> put it on the clipboard.</li>
+  <li>The first line is the group name from Settings (for example "Volley Berlin | Beachvolleyball"). The link line needs the page link in Settings.</li>
+  <li>If an opening time is set and still ahead, the text ends with "⏰ Sign-ups open …".</li>
+  <li>The <b>QR code</b> under the text points to the page; "Save QR as image" downloads it so you can post it as a picture next to the text (WhatsApp cannot carry a picture inside a text message).</li>
+</ul>
+</section>
+
+<section class="s" id="list">
+<h2>5. The list</h2>
+<p>The list is strictly first come, first served, in the order the server received each sign-up (the time with seconds next to every name). The first <i>roster count</i> people play; everyone after that is on the bench and moves up automatically when someone ahead leaves.</p>
+<div class="figs">
+  <figure><img src="img/org-add-player.png" alt="List as the organizer sees it"><figcaption>Organizer view: emails, paid boxes, remove buttons, Copy list, and the row to add someone by hand.</figcaption></figure>
+</div>
+<h3>What only organizers see</h3>
+<ul>
+  <li>Emails (from the player's account, or the one you typed when adding someone).</li>
+  <li>The <b>paid</b> box per person and <span class="pill warn">says paid</span> when a player ticked "I've paid" themselves.</li>
+  <li><b>×</b> to remove someone (asks once; the toast offers <b>Undo</b> for ten seconds).</li>
+  <li><b>Copy list</b>: the list as numbered text for WhatsApp.</li>
+</ul>
+<h3>Adding someone by hand</h3>
+<p>Type a name (and optionally an email) under the list and tap "Add to list". The person lands at the end of the queue, like a normal sign-up at that moment. Names on the list are unique, so a second "Ana" is refused. People added by hand do not have an account; they cannot leave by themselves, you remove them.</p>
+<h3>Who moves up</h3>
+<p>When someone leaves or is removed, the first person on the bench takes a playing spot and the whole list re-numbers in joining order. The toast and the activity log tell you who moved up. Someone who leaves and joins again goes to the back of the queue.</p>
+</section>
+
+<section class="s" id="leave">
+<h2>6. Leave requests</h2>
+<p>Players can take themselves off the list, but the rules depend on the time:</p>
+<ul>
+  <li><b>More than 3 hours before the start:</b> leaving is a <i>request</i>. The person keeps the spot until an organizer decides, so nobody moves up prematurely.</li>
+  <li><b>In the last 3 hours, and after the start:</b> leaving is immediate; the next person moves up at once.</li>
+</ul>
+<div class="figs">
+  <figure><img src="img/org-list-leave-request.png" alt="Leave request in the list"><figcaption>A pending request: notice above the list, "Let go" / "Keep on the list" under the name.</figcaption></figure>
+  <figure><img src="img/player-leave-requested.png" alt="What the player sees"><figcaption>What the player sees while waiting (they can take it back).</figcaption></figure>
+</div>
+<ul>
+  <li><b>Let go</b>: the person is off the list, the bench moves up, both of you get a notice.</li>
+  <li><b>Keep on the list</b>: the request is declined; the player sees "An organizer kept you on the list. Talk to them if you really can't make it."</li>
+  <li>Organizers get a toast the moment someone asks, if the page is open. The activity log keeps every request and decision.</li>
+</ul>
+<div class="note">Organizers themselves always leave immediately, no request needed.</div>
+</section>
+
+<section class="s" id="pay">
+<h2>7. Payments</h2>
+<div class="figs">
+  <figure class="wide"><img src="img/org-payments.png" alt="Payments section"><figcaption>Payments: totals, "Says paid" with one-tap confirmation, reminders.</figcaption></figure>
+</div>
+<ul>
+  <li>Tick <b>paid</b> next to a name in the list, or <b>Mark everyone paid</b> in Payments.</li>
+  <li>Players can tick <b>"I've paid"</b> on their own card after transferring. That does not count as paid yet: you see <span class="pill warn">says paid</span> next to the name and a "Says paid: …" banner in Payments with <b>Confirm</b>. Confirming sets paid.</li>
+  <li><b>Remind on WhatsApp</b> / <b>Copy reminder</b> / <b>Email reminder</b> address the people who still owe. Email only works for people with an email on file.</li>
+  <li>The totals (collected / outstanding) use the price from the session.</li>
+</ul>
+<div class="note">Payment information is organizer-only. Players see their own state ("Pay 8 € to Gürkan", "Paid? waiting for the organizer to confirm", "Paid") and nothing about others.</div>
+</section>
+
+<section class="s" id="roster">
+<h2>8. Roster and teams</h2>
+<p>The roster is made from <b>players who have paid</b>, in list order, up to the roster count. Unpaid people in the playing group show up as "not in the roster" so you notice.</p>
+<ol class="steps">
+  <li><b>Courts.</b> Tap "Generate roster" and say how many courts of each kind (2v2 = 4 players, 3v3 = 6, 4v4 = 8, 5v5 = 10). The total has to be exactly the roster count, otherwise "Generate teams" stays disabled and the message says how far off you are. The page suggests a split for you.</li>
+  <li><b>Generate.</b> Teams appear in the editor. "Regenerate" gives another variant; "Change courts" goes back to step 1.</li>
+  <li><b>Adjust.</b> Tap a player, then another to swap them, or tap "Move here" on a team; "Remove from roster" sends a player back to the pool; tap a pool player and then "Move here" to place them.</li>
+  <li><b>Preview and save.</b> "Preview" shows the roster as it will be shared; "Save teams" stores it with the session, and everyone sees it on the page under "Final roster". Exporting also saves.</li>
+  <li><b>Share.</b> WhatsApp, Copy as text, PDF, HTML file, or Email to players.</li>
+</ol>
+<div class="figs">
+  <figure><img src="img/org-courts-step.png" alt="Courts step"><figcaption>Step 1: the courts have to hold exactly the roster count.</figcaption></figure>
+  <figure><img src="img/org-roster-editor.png" alt="Roster editor"><figcaption>Step 2: the editor. Dashed chips haven't paid.</figcaption></figure>
+  <figure><img src="img/org-roster-preview.png" alt="Preview and export"><figcaption>Preview, save, export.</figcaption></figure>
+  <figure><img src="img/everyone-final-roster.png" alt="Final roster on the page"><figcaption>The saved roster as everyone sees it.</figcaption></figure>
+</div>
+<h3>How the teams are made</h3>
+<ol>
+  <li><b>Groups first.</b> Players are split into court-sized groups so that people who shared a court in past sessions (saved teams) are together as much as possible.</li>
+  <li><b>Strength orders the groups.</b> Groups are sorted by average level; the strongest group takes the smallest court (Court 1), the next the next court. If a group is bigger than its court, its weakest members spill into the next court. Without any shared past yet, courts of different sizes are simply filled by level, strongest on the smallest court.</li>
+  <li><b>Balanced teams.</b> Each court is split into two teams with the closest average level. Keep-together pairs share a team; keep-apart pairs never do, when possible.</li>
+</ol>
+<h3>Ratings &amp; pairs</h3>
+<div class="figs">
+  <figure><img src="img/org-ratings.png" alt="Ratings and pairs"><figcaption>Ratings &amp; pairs, inside the editor.</figcaption></figure>
+</div>
+<ul>
+  <li>Players pick their level (1 = beginner … 5 = strong) once when they register. Here you can adjust it; for players with an account that changes their level for good, for people added by hand it is a rating kept for the roster.</li>
+  <li><b>Keep together</b> ("Ana + Jonas, Mia + Luca") and <b>Keep apart</b> ("Tom / Niko") are remembered across sessions. Names must match the list.</li>
+</ul>
+<h3>Teams of past sessions</h3>
+<p>In Previous sessions, every session shows its stored teams; "Edit teams" (or "Set teams" when none are stored) opens the same editor for that session. Stored teams are what the "played together" grouping learns from, so it pays to save them every week.</p>
+</section>
+
+<section class="s" id="played">
+<h2>9. After the game</h2>
+<div class="figs">
+  <figure class="wide"><img src="img/org-mark-played.png" alt="Mark as played"><figcaption>Mark as played: tick anyone who didn't show up.</figcaption></figure>
+  <figure class="wide"><img src="img/org-after-played.png" alt="After marking as played"><figcaption>Afterwards: reopen if needed, or start next week's session in one tap.</figcaption></figure>
+</div>
+<ul>
+  <li><b>Mark as played</b> closes joining and leaving, records no-shows (you can still tick paid and no-show in the list afterwards) and saves the teams if a draft was open.</li>
+  <li><b>Reopen</b> undoes that if you tapped too early.</li>
+  <li><b>Start next week's session</b> copies date + 7 days, time, place, roster and bench counts, price, note and opening time (+7 days), creates the session and has the announcement ready.</li>
+</ul>
+</section>
+
+<section class="s" id="history">
+<h2>10. History and attendance</h2>
+<div class="figs">
+  <figure><img src="img/org-history.png" alt="Previous sessions and attendance stats"><figcaption>Previous sessions with the attendance table (organizer view includes the Late leave column).</figcaption></figure>
+</div>
+<ul>
+  <li>Each past session lists who played (with paid and no-show marks for organizers), who was on the bench, and the stored teams.</li>
+  <li><b>Attendance so far</b> counts played / bench / no-show per person across all past sessions. Organizers also see <b>Late leave</b>: how often someone left the list in the last 3 hours before a start.</li>
+  <li>Players see their own numbers on their account page ("Your record").</li>
+</ul>
+</section>
+
+<section class="s" id="log">
+<h2>11. Activity log</h2>
+<div class="figs">
+  <figure><img src="img/org-activity-log.png" alt="Activity log"><figcaption>The activity log, filtered to organizer changes.</figcaption></figure>
+</div>
+<p>Every join, rejoin, leave, leave request and decision, "I've paid" note, registration, rename, account deletion, and every organizer action (add, remove, undo, paid, no-show, session created or changed with a diff, marked as played, teams saved, level and rating changes) is written together with the change itself, so the log can't miss anything.</p>
+<ul>
+  <li>Filter by session, by kind (Joins, Leaves, Organizer changes, Accounts) and by name; newest first; the latest 400 entries.</li>
+  <li><b>Download CSV</b> exports what is currently filtered.</li>
+  <li>Only organizers can open the log.</li>
+</ul>
+</section>
+
+<section class="s" id="accounts">
+<h2>12. Accounts and levels</h2>
+<ul>
+  <li>Players register once with Google or with email and password, pick the name shown on the list and their level. Names are unique in the group; the page asks for a last name or initial when a name is taken.</li>
+  <li>One account can be on a session's list once. People can change their name and password on their account page; the list follows a rename immediately.</li>
+  <li>Levels are set once by the player; afterwards only organizers change them (Ratings &amp; pairs in the roster editor).</li>
+  <li>"Forgot password? Reset it by email" is on the login page; the mail comes from Firebase.</li>
+  <li>Players can delete their account themselves (account page). Past sessions keep the name in the history.</li>
+  <li>Organizers are not managed on the page: add or remove the Google email in the <code>admins</code> collection in the Firebase console.</li>
+</ul>
+</section>
+
+<section class="s" id="settings">
+<h2>13. Settings</h2>
+<div class="figs">
+  <figure class="wide"><img src="img/org-settings.png" alt="Settings"><figcaption>Group settings, saved for everyone.</figcaption></figure>
+</div>
+<ul>
+  <li><b>Group name</b>: the band title and the first line of the announcement ("Volley Berlin | Beachvolleyball").</li>
+  <li><b>Organizer name</b>: shown next to the price on players' cards ("Pay 8 € to Gürkan").</li>
+  <li><b>Public link of this page</b>: used in the announcement, the QR code, the calendar entries and "Copy list".</li>
+</ul>
+</section>
+
+<section class="s" id="players">
+<h2>14. What players see and do</h2>
+<div class="figs">
+  <figure><img src="img/player-login.png" alt="Login page"><figcaption>Login with Google or email; "How it works" explains the rules.</figcaption></figure>
+  <figure><img src="img/player-card.png" alt="Player card"><figcaption>After joining: position, payment state, "I've paid", leave, calendar.</figcaption></figure>
+  <figure><img src="img/player-leave-confirm.png" alt="Leave confirmation"><figcaption>Leaving asks for confirmation and explains the 3-hour rule.</figcaption></figure>
+  <figure><img src="img/player-account.png" alt="Account page"><figcaption>Account page: name, password, own record, delete account.</figcaption></figure>
+</div>
+<ul>
+  <li>Anyone can look at the list without an account; joining needs a login.</li>
+  <li>Players see name, position and registration time for everyone, plus "wants to leave" markers and no-shows after a game. They do not see emails or who has paid.</li>
+  <li>The page tells them what happens to them: joined, moved up from the bench, marked paid, let go, kept, removed, list full, sign-ups open (with a short buzz on phones). The browser tab shows their position.</li>
+  <li>Calendar links (Google Calendar, .ics) are on their card.</li>
+</ul>
+</section>
+
+<section class="s" id="rules">
+<h2>15. Rules in short</h2>
+<table>
+<tr><th>Who</th><th>Can</th></tr>
+<tr><td>Anyone</td><td>See the list, the final roster, previous sessions and attendance (without payment info).</td></tr>
+<tr><td>Logged-in player</td><td>Join the current session once (when it is open and not full), ask to leave or leave in the 3-hour window, take a request back, rejoin at the back, tick "I've paid", change own name and password, see own record, delete own account.</td></tr>
+<tr><td>Organizer</td><td>Everything above, plus: sessions, announcement, add and remove people, undo, decide leave requests, paid and no-show marks, levels and ratings, roster and teams, mark as played, history teams, activity log, settings.</td></tr>
+</table>
+<p class="small muted">These limits are enforced by the server (Firebase security rules), not only by the page. Times are stamped by the server, so the order of the list and the opening time cannot be gamed with a device clock.</p>
+</section>
+
+<section class="s" id="trouble">
+<h2>16. Troubleshooting</h2>
+<table>
+<tr><th>You see</th><th>What it means</th></tr>
+<tr><td>"Firebase refused this change. Are you signed in as an organizer?"</td><td>Your account is not on the organizer list, or the security rules in the Firebase console are older than the page. Re-publish the rules from the repository (<code>firestore.rules</code>).</td></tr>
+<tr><td>"You're offline" banner</td><td>No connection. The list may be stale; your taps are sent once you are back. Refresh if it stays.</td></tr>
+<tr><td>The status line shows an older version than the newest release</td><td>The page updates itself once when a new version is served; otherwise reload. In rare cases GitHub's deployment takes 10 to 20 minutes.</td></tr>
+<tr><td>Someone cannot join</td><td>Check in this order: not logged in · sign-ups not open yet (countdown) · the list is full including the bench · the name is already on the list (added by hand) · the session is marked as played.</td></tr>
+<tr><td>"That name is already taken"</td><td>Names are unique in the group. Ask them to add a last name or initial.</td></tr>
+<tr><td>Countdown looks off on a phone</td><td>Logged-out visitors see the countdown in device time; after logging in it is corrected to server time. Joining is checked by the server either way.</td></tr>
+<tr><td>"Generate teams" stays disabled</td><td>The courts do not add up to the roster count. Add or remove courts, or change the roster count in the session (must be even).</td></tr>
+<tr><td>The QR code says it could not be loaded</td><td>The small QR library could not be fetched (blocked network). The link still works; try again later.</td></tr>
+</table>
+</section>
+
+<section class="s" id="demo">
+<h2>17. Demo page</h2>
+<p>A copy of the page with example data runs at <b>…/volleyball/demo/</b>. Everything there stays on your device, the organizer tools open without a login ("Organizer (demo)"), and "Reset demo data" in Settings starts over. Good for trying things before doing them on the live page.</p>
+<ul>
+  <li><code>/demo/#countdown</code> makes the demo session open 3 minutes from now, to see the countdown and the opening moment.</li>
+  <li><code>/demo/#soon</code> moves the demo session's start to 2 hours from now, to try an immediate leave.</li>
+</ul>
+<a class="back" href="../">← Back to the page</a>
+<footer>Organizer guide for version 1.0 · 6 November 2026</footer>
+</section>
+</div>
+</body>
+</html>
