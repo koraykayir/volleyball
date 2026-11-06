@@ -184,6 +184,19 @@ details.help{font-size:14px}
 .toast{position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); background:var(--fg); color:var(--bg); padding:10px 14px; border-radius:var(--radius); font-size:14px; z-index:20; opacity:0; pointer-events:none; transition:opacity .2s; max-width:min(92vw,520px); text-align:center}
 .toast.on{opacity:1}
 .toast.err{background:var(--bad); color:#fff}
+.toast.act{pointer-events:auto}
+.toast .tact{margin-left:12px; background:var(--court); color:#fff; border:0; border-radius:6px; padding:6px 10px; font:600 13px var(--body); cursor:pointer}
+.how{font-size:13.5px; color:var(--muted)}
+.how summary{cursor:pointer; font-weight:600; color:var(--court); list-style:none}
+.how summary::-webkit-details-marker{display:none}
+.how ol{margin:8px 0 0; padding-left:20px; display:flex; flex-direction:column; gap:4px}
+.qr{display:flex; flex-direction:column; align-items:flex-start; gap:8px}
+.qr svg,.qr img{width:180px; height:180px; background:#fff; border-radius:8px; padding:6px; box-sizing:content-box}
+.statgrid.org{grid-template-columns:1fr auto auto auto auto}
+.rec{display:flex; flex-wrap:wrap; gap:6px 14px; font-size:14px}
+.rec b{font:700 20px/1 var(--display)}
+.rec span{display:flex; flex-direction:column; min-width:70px}
+.rec small{font-size:12px; color:var(--muted)}
 .row.new{animation:rowin 1.4s ease-out}
 .row.moved{animation:rowmove 1.8s ease-out}
 @keyframes rowin{from{background:var(--ok-soft)} to{background:transparent}}
@@ -318,7 +331,7 @@ function suggestCourts(cap) {
 /* ================= data model =================
    Firestore layout (same shape in demo mode):
    config/app            { title, organizer, pageUrl, currentSessionId }
-   sessions/{id}         { date, time, place, capacity, benchCap|null, price, note, opensAt, opensAtTs, startsAtTs, duration,
+   sessions/{id}         { date, time, place, venueType, formats, capacity, benchCap|null, price, note, opensAt, opensAtTs, startsAtTs, duration,
                            status: 'open'|'played', playedAt, roster: {t, b, c}|null, summary: {attendees}|null, createdAt }
                            (before v13: courts, format, courtsList instead of capacity; roster without c)
    signups/{auto}        { sessionId, name, uid, createdAt, status: 'active'|'leaving'|'left'|'removed', paid, noshow, guestOf, addedBy: 'self'|'organizer',
@@ -328,7 +341,7 @@ function suggestCourts(cap) {
    ratings/{nameLower}   { name, r }  ratings/_pairs { together, apart }   organizers only
    admins/{email}        added by hand in the Firebase console */
 function emptyData(mode) { return { mode, clockOffset: 0, clockSynced: false, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false, log: null, logLoaded: false }; }
-function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, startsAtMs: s.startsAtMs || 0, duration: s.duration || 120, capacity: s.capacity == null ? null : s.capacity, benchCap: s.benchCap == null ? null : s.benchCap }; }
+function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, startsAtMs: s.startsAtMs || 0, duration: s.duration || 120, capacity: s.capacity == null ? null : s.capacity, benchCap: s.benchCap == null ? null : s.benchCap, venueType: s.venueType || '', formats: s.formats || '' }; }
 // Current time as the server sees it (offset measured against Firestore once logged in; device clock otherwise).
 function now() { return Date.now() + ((S.data && S.data.clockOffset) || 0); }
 // Order is decided by the server clock: Firestore stamps each sign-up on arrival (rules reject any other time).
@@ -352,7 +365,7 @@ function buildVM(d) {
   const uid = d.user && d.user.uid;
   const sign = cur ? (d.signups || []).filter(x => x.sessionId === cur.id).sort(serverOrder) : [];
   sign.forEach(x => {
-    st.people.set(x.id, { key: x.id, tsMs: x.createdAt || 0, name: normName(x.name), email: (d.contacts || {})[x.id] || (x.addedBy === 'self' && (d.players || {})[x.uid] ? (d.players[x.uid].email || '') : ''), ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active' || x.status === 'leaving', leaving: x.status === 'leaving', declined: !!(x.status === 'active' && x.leaveDeclinedAt && (!x.leaveRequestedAt || x.leaveDeclinedAt >= x.leaveRequestedAt)), paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
+    st.people.set(x.id, { key: x.id, tsMs: x.createdAt || 0, name: normName(x.name), email: (d.contacts || {})[x.id] || (x.addedBy === 'self' && (d.players || {})[x.uid] ? (d.players[x.uid].email || '') : ''), ts: x.createdAt ? new Date(x.createdAt).toISOString() : '', active: x.status === 'active' || x.status === 'leaving', leaving: x.status === 'leaving', claimed: !x.paid && !!x.paidClaimedAt, declined: !!(x.status === 'active' && x.leaveDeclinedAt && (!x.leaveRequestedAt || x.leaveDeclinedAt >= x.leaveRequestedAt)), paid: !!x.paid, noshow: !!x.noshow, guestOf: x.guestOf || '', pending: !!x.pending, uid: x.uid || '', addedBy: x.addedBy || 'self' });
   });
   st.attendees = sign.map(x => st.people.get(x.id)).filter(p => p.active);
   const mine = uid ? st.attendees.find(p => p.uid === uid && !p.guestOf && p.addedBy !== 'organizer') : null;
@@ -379,7 +392,7 @@ const S = {
     addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false,
     ev: null, evDirty: false,
     roster: { mode: 'closed', sel: null, id: null, rc: null }, ratingsOpen: false,
-    setupOpen: false, suTitle: '', suOrganizer: '', suPageUrl: '', suSaved: false,
+    setupOpen: false, suTitle: '', suOrganizer: '', suPageUrl: '', suSaved: false, acDelete: false, acDelPw: '',
     logOpen: false, lgSession: 'all', lgType: 'all', lgQ: ''
   }
 };
@@ -394,7 +407,7 @@ function onData(d) {
   (d.signups || []).forEach(x => { if (x.addedBy === 'self') lv(x.uid, normName(x.name)); });
   (d.sessions || []).forEach(s => ((s.summary && s.summary.attendees) || []).forEach(a => lv(a.uid, a.name)));
   const who = (d.user ? d.user.uid : '') + '|' + (d.profile ? 1 : 0);
-  if (who !== S.who) { S.who = who; const a = document.activeElement; if (a && a.blur && $('#app') && $('#app').contains(a)) a.blur(); }
+  if (who !== S.who) { S.who = who; S.leftAll = null; const a = document.activeElement; if (a && a.blur && $('#app') && $('#app').contains(a)) a.blur(); }
   if (d.user) { U().authOpen = false; U().auPass = ''; }
   if (!pairsTimer) S.pairs = Object.assign({ together: '', apart: '' }, d.pairs || {});
   S.vm = buildVM(d);
@@ -413,7 +426,8 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v15';
+const APP_VERSION = 'v16'; // build tag for the self-update check
+const APP_LABEL = '1.0'; // what people see
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
@@ -468,7 +482,7 @@ function firebaseBackend(conf) {
     subSid = sid; if (unsubSign) unsubSign(); unsubSign = null; d.signups = [];
     if (!sid) return;
     unsubSign = fs.collection('signups').where('sessionId', '==', sid).onSnapshot({ includeMetadataChanges: true }, snap => {
-      d.signups = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'none' }) || {}; const c = v.createdAt; return Object.assign({}, v, { id: x.id, createdAt: ms(c), createdSub: c && typeof c.nanoseconds === 'number' ? c.nanoseconds % 1000000 : 0, leaveRequestedAt: ms(v.leaveRequestedAt), leaveDeclinedAt: ms(v.leaveDeclinedAt), leftAt: ms(v.leftAt), pending: !!x.metadata.hasPendingWrites || !c }); });
+      d.signups = snap.docs.map(x => { const v = x.data({ serverTimestamps: 'none' }) || {}; const c = v.createdAt; return Object.assign({}, v, { id: x.id, createdAt: ms(c), createdSub: c && typeof c.nanoseconds === 'number' ? c.nanoseconds % 1000000 : 0, leaveRequestedAt: ms(v.leaveRequestedAt), leaveDeclinedAt: ms(v.leaveDeclinedAt), leftAt: ms(v.leftAt), paidClaimedAt: ms(v.paidClaimedAt), pending: !!x.metadata.hasPendingWrites || !c }); });
       emit();
     }, readFail);
   }
@@ -633,6 +647,23 @@ function firebaseBackend(conf) {
       const u = me(); const cred = firebase.auth.EmailAuthProvider.credential(u.email, current);
       await u.reauthenticateWithCredential(cred); await u.updatePassword(next);
     },
+    // "I've paid" note by the player; the organizer confirms by ticking paid.
+    claimPaid(k, e) { return one(b => b.update(fs.collection('signups').doc(k), { paidClaimedAt: TS() }), Object.assign({}, e, { type: 'paid-claim' })); },
+    unclaimPaid(k, e) { return one(b => b.update(fs.collection('signups').doc(k), { paidClaimedAt: firebase.firestore.FieldValue.delete() }), Object.assign({}, e, { type: 'paid-unclaim' })); },
+    async mySignups() { const u = me(); const sn = await fs.collection('signups').where('uid', '==', u.uid).get(); return sn.docs.map(x => { const v = x.data() || {}; return Object.assign({}, v, { id: x.id, createdAt: ms(v.createdAt), leftAt: ms(v.leftAt) }); }).filter(x => x.addedBy === 'self'); },
+    async leftSignups() { const sn = await fs.collection('signups').where('status', '==', 'left').get(); return sn.docs.map(x => { const v = x.data() || {}; return { id: x.id, name: v.name, sessionId: v.sessionId, leftAt: ms(v.leftAt) }; }); },
+    // Delete the own account: profile and name claim first (needs a fresh login), then the login itself.
+    async deleteAccount(password) {
+      const u = me();
+      if (u.providerData && u.providerData[0] && u.providerData[0].providerId === 'password') await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email, password || ''));
+      else await u.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
+      const name = (d.profile && d.profile.name) || ''; const b = fs.batch();
+      if (name) { const nref = fs.collection('names').doc(nameKey(name)); const sn = await nref.get(); if (sn.exists && (sn.data() || {}).uid === u.uid) b.delete(nref); }
+      b.delete(fs.collection('players').doc(u.uid));
+      addLog(b, { type: 'account-delete', name, uid: u.uid, byName: name });
+      await b.commit();
+      try { await u.delete(); } catch (e) { await auth.signOut(); throw e; }
+    },
     signOut() { return auth.signOut(); }
   };
 }
@@ -737,6 +768,18 @@ function localBackend() {
       addLog({ type: 'rename', name: newName, uid, byName: newName, detail: old }); emit();
     },
     async changePassword(current, next) { const a = db.accounts[session]; if (!a || a.provider !== 'password') throw err('vb/no-password', 'no password'); if (a.pw !== current) throw err('auth/invalid-credential', 'wrong'); a.pw = next; emit(); },
+    async claimPaid(k, e) { if (db.signups[k]) { db.signups[k].paidClaimedAt = Date.now(); addLog(Object.assign({}, e, { type: 'paid-claim' })); emit(); } },
+    async unclaimPaid(k, e) { if (db.signups[k]) { delete db.signups[k].paidClaimedAt; addLog(Object.assign({}, e, { type: 'paid-unclaim' })); emit(); } },
+    async mySignups() { const uid = curUid(); return Object.values(copy(db.signups)).filter(x => x.uid === uid && x.addedBy === 'self'); },
+    async leftSignups() { return Object.values(copy(db.signups)).filter(x => x.status === 'left').map(x => ({ id: x.id, name: x.name, sessionId: x.sessionId, leftAt: x.leftAt })); },
+    async deleteAccount(password) {
+      const acc = session && db.accounts[session]; if (!acc) throw err('vb/not-logged-in', 'Please log in first.');
+      if (acc.provider === 'password' && acc.pw !== password) throw err('auth/invalid-credential', 'wrong');
+      const pl = db.players[acc.uid]; const name = pl ? pl.name : '';
+      if (name && db.names[nameKey(name)] && db.names[nameKey(name)].uid === acc.uid) delete db.names[nameKey(name)];
+      addLog({ type: 'account-delete', name, uid: acc.uid, byName: name });
+      delete db.players[acc.uid]; delete db.accounts[session]; session = null; emit();
+    },
     async openOrganizerDemo() { admin = true; store.set('vb.localAdmin', true); emit(); },
     async signOut() { session = null; admin = false; store.set('vb.localAdmin', false); emit(); },
     async clearExamples() { const keep = {}; Object.values(db.accounts || {}).forEach(a => { if (db.players[a.uid]) { keep[a.uid] = db.players[a.uid]; } }); const names = {}; Object.entries(db.names || {}).forEach(([k, v]) => { if (keep[v.uid]) names[k] = v; }); db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: keep, names, accounts: db.accounts || {}, pairs: { together: '', apart: '' }, log: {} }; emit(); },
@@ -814,7 +857,9 @@ function recentHTML(vm) {
 let toastTimer = null;
 function toast(msg, opts) {
   const o = opts || {}; let t = $('#vb-toast'); if (!t) { t = document.createElement('div'); t.id = 'vb-toast'; t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
-  t.textContent = msg; t.classList.toggle('err', !!o.err); t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), o.ms || (o.err ? 6000 : 2600));
+  t.textContent = msg; t.classList.toggle('err', !!o.err); t.classList.toggle('act', !!o.action);
+  if (o.action) { const b = document.createElement('button'); b.type = 'button'; b.className = 'tact'; b.textContent = o.action.label; b.onclick = () => { t.classList.remove('on'); o.action.fn(); }; t.appendChild(b); }
+  t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), o.ms || (o.err ? 6000 : (o.action ? 8000 : 2600)));
 }
 // A short buzz on phones for things that happen to you (ignored where unsupported).
 function buzz(pattern) { try { if (navigator.vibrate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(pattern || 40); } catch (e) {} }
@@ -870,11 +915,14 @@ function ctxFor(id) {
 }
 function activeCtx() { return ctxFor(U().roster.id); }
 /* ---- roster generation ----
-   1. Courts are grouped by size; the smallest courts get the strongest players (by rating), the next
-      size the next strongest, and so on. 2. Among courts of the same size, players who often shared a
-      court before are kept together (familiarity from past sessions with saved teams, hill climbing with
-      restarts). 3. Each court is split into two teams whose average levels are as close as possible
-      (exhaustive, a court has at most 10). Keep-together pairs share a team, keep-apart pairs never do (when possible). */
+   1. Groups: players are split into court-sized groups so that people who shared a court in past
+      sessions (saved teams) are together as much as possible (hill climbing with restarts).
+   2. Courts: the groups are ordered by strength (average rating); the strongest group takes the
+      smallest court, the next one the next court, and so on. When a group is bigger than its court,
+      its weakest members spill over into the next court. Groups matter more than strength.
+      Without any shared past, courts of different sizes are filled by rating (strongest on the smallest).
+   3. Teams: each court is split into two teams whose average levels are as close as possible
+      (exhaustive; a court has at most 10). Keep-together pairs share a team, keep-apart pairs never do (when possible). */
 function familiarity(ctx) {
   const F = new Map(); let sessions = 0;
   const add = (a, b) => { if (a === b) return; const k = a < b ? a + '|' + b : b + '|' + a; F.set(k, (F.get(k) || 0) + 1); };
@@ -906,41 +954,49 @@ function generateTeams(ctx, courtsIn) {
   const used = new Set(); const units = [];
   together.forEach(([a, b]) => { const pa = pool.find(p => lc(p) === a), pb = pool.find(p => lc(p) === b); if (pa && pb && !used.has(pa.key) && !used.has(pb.key)) { units.push([pa, pb]); used.add(pa.key); used.add(pb.key); } });
   pool.forEach(p => { if (!used.has(p.key)) units.push([p]); });
-  const unitOf = p => units.find(u => u.includes(p)); const urate = u => u.reduce((t, p) => t + ratingOf(p.name), 0) / u.length;
-  // step 1: tiers. Courts grouped by size, smallest first; the strongest units fill the smallest tier first.
+  const unitOf = p => units.find(u => u.includes(p));
+  const urate = u => u.reduce((t, p) => t + ratingOf(p.name), 0) / u.length;
+  const grate = g => { const ps = g.flat(); return ps.length ? ps.reduce((t, p) => t + ratingOf(p.name), 0) / ps.length : 0; };
+  const byRating = list => list.slice().sort((a, b) => urate(b) - urate(a) || pool.indexOf(a[0]) - pool.indexOf(b[0]));
+  // courts from the smallest up; slot i gets cCount of court order[i] players
   const size = c => caps[2 * c] + caps[2 * c + 1];
-  const tiers = [];
-  Array.from({ length: nC }, (_, c) => c).sort((a, b) => size(a) - size(b) || a - b).forEach(c => { const t = tiers.find(x => x.size === size(c)); if (t) t.courts.push(c); else tiers.push({ size: size(c), courts: [c] }); });
-  const cs = Array.from({ length: nC }, () => []);
-  const score = tc => tc.reduce((t, c) => { const court = cs[c]; let v = 0; for (let i = 0; i < court.length; i++) for (let j = i + 1; j < court.length; j++) v += fam.get(lc(court[i]), lc(court[j])); return t + v; }, 0);
-  const placeInTier = (tc, tunits) => {
-    if (tc.length === 1) { tunits.forEach(u => u.forEach(p => cs[tc[0]].push(p))); return; }
-    // several courts of the same size: people who often played together share a court
+  const order = Array.from({ length: nC }, (_, c) => c).sort((a, b) => size(a) - size(b) || a - b);
+  const slotSizes = order.map(c => cCount[c]);
+  // fill slots in order from a sequence of units; a unit that does not fit waits for the next slot
+  const cutUnits = seq => { const out = slotSizes.map(() => []); let left = seq.slice(); slotSizes.forEach((sz, i) => { let room = sz; const rest = []; left.forEach(u => { if (u.length <= room) { out[i].push(u); room -= u.length; } else rest.push(u); }); left = rest; }); left.forEach(u => { let i = 0; for (let j = 1; j < out.length; j++) if (slotSizes[j] - out[j].flat().length > slotSizes[i] - out[i].flat().length) i = j; out[i].push(u); }); return out; };
+  // split the units into slots so that past court-mates are together (hill climbing with restarts)
+  const partition = () => {
+    const score = gs => gs.reduce((t, g) => { const ps = g.flat(); let v = 0; for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) v += fam.get(lc(ps[i]), lc(ps[j])); return t + v; }, 0);
     let best = null, bestScore = -1;
     for (let restart = 0; restart < 25; restart++) {
-      const room = {}; tc.forEach(c => { cs[c] = []; room[c] = cCount[c]; });
-      for (const u of shuffle(tunits)) { let c = -1, most = -1; tc.forEach(x => { if (room[x] >= u.length && room[x] > most) { most = room[x]; c = x; } }); if (c < 0) c = tc.reduce((a, b) => room[a] >= room[b] ? a : b); u.forEach(p => cs[c].push(p)); room[c] -= u.length; }
-      let cur = score(tc); let improved = true;
+      const gs = slotSizes.map(() => []); const room = slotSizes.slice();
+      for (const u of shuffle(units)) { let i = -1, most = -1; room.forEach((r, k) => { if (r >= u.length && r > most) { most = r; i = k; } }); if (i < 0) i = room.indexOf(Math.max(...room)); gs[i].push(u); room[i] -= u.length; }
+      let cur = score(gs); let improved = true;
       while (improved) {
         improved = false;
-        for (let i = 0; i < tc.length && !improved; i++) for (let j = i + 1; j < tc.length && !improved; j++) { const a = tc[i], b = tc[j];
-          for (const pa of cs[a]) { if (unitOf(pa).length > 1) continue; for (const pb of cs[b]) { if (unitOf(pb).length > 1) continue;
-            const ia = cs[a].indexOf(pa), ib = cs[b].indexOf(pb); cs[a][ia] = pb; cs[b][ib] = pa; const s2 = score(tc);
-            if (s2 > cur) { cur = s2; improved = true; break; } cs[a][ia] = pa; cs[b][ib] = pb; } if (improved) break; } }
+        for (let a = 0; a < gs.length && !improved; a++) for (let b = a + 1; b < gs.length && !improved; b++) {
+          for (let x = 0; x < gs[a].length && !improved; x++) for (let y = 0; y < gs[b].length; y++) {
+            if (gs[a][x].length !== gs[b][y].length) continue;
+            const ua = gs[a][x], ub = gs[b][y]; gs[a][x] = ub; gs[b][y] = ua; const s2 = score(gs);
+            if (s2 > cur) { cur = s2; improved = true; break; } gs[a][x] = ua; gs[b][y] = ub;
+          }
+        }
       }
-      if (cur > bestScore) { bestScore = cur; best = {}; tc.forEach(c => { best[c] = cs[c].slice(); }); }
+      if (cur > bestScore) { bestScore = cur; best = gs.map(g => g.slice()); }
     }
-    tc.forEach(c => { cs[c] = best[c]; });
+    return best;
   };
-  let left = units.slice().sort((a, b) => urate(b) - urate(a) || pool.indexOf(a[0]) - pool.indexOf(b[0]));
-  tiers.forEach(t => {
-    let room = t.courts.reduce((n, c) => n + cCount[c], 0); const mine = [], rest = [];
-    left.forEach(u => { if (u.length <= room) { mine.push(u); room -= u.length; } else rest.push(u); });
-    left = rest; placeInTier(t.courts, mine);
-  });
-  // a pair that fit nowhere as a pair is split over the courts with room
-  left.forEach(u => u.forEach(p => { let c = 0; for (let i = 1; i < nC; i++) if (cCount[i] - cs[i].length > cCount[c] - cs[c].length) c = i; cs[c].push(p); }));
-  // step 2: split each court into two teams with the closest average level
+  const hasHistory = fam.sessions > 0 && pool.some((p, i) => pool.some((q, j) => j > i && fam.get(lc(p), lc(q)) > 0));
+  const sameSize = slotSizes.every(x => x === slotSizes[0]);
+  let groups;
+  if (hasHistory) {
+    // step 1: groups by shared past; step 2: strongest group on the smallest court, overflow spills down
+    groups = partition().sort((a, b) => grate(b) - grate(a));
+    const seq = []; groups.forEach(g => byRating(g).forEach(u => seq.push(u)));
+    groups = cutUnits(seq);
+  } else groups = sameSize ? partition() : cutUnits(byRating(units));
+  const cs = Array.from({ length: nC }, () => []); order.forEach((c, i) => { cs[c] = groups[i].flat(); });
+  // step 3: split each court into two teams with the closest average level
   const teams = caps.map(() => []);
   cs.forEach((court, c) => {
     const nA = Math.min(tCount[2 * c], court.length); const n = court.length; let best = null, bestCost = Infinity;
@@ -1105,7 +1161,7 @@ function authHTML() {
     '<button type="button" class="btn big" data-act="auth-login"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Logging in…' : 'Log in') + '</button>' +
     '<button type="button" class="btn big ghost" data-act="auth-mode" data-mode="reset">Forgot password? Reset it by email</button>' +
     '<div class="actions small"><span class="muted">New here?</span><button type="button" class="link" data-act="auth-mode" data-mode="register">Create an account</button></div>';
-  return '<section class="card authcard"><div class="stack">' + body + '<div class="actions small">' + close + '</div></div></section>';
+  return '<section class="card authcard"><div class="stack">' + body + (m === 'reset' ? '' : howHTML(S.vm)) + '<div class="actions small">' + close + '</div></div></section>';
 }
 function profileHTML() {
   const ui = U(); const u = S.data.user || {};
@@ -1121,6 +1177,14 @@ function accountHTML() {
   if (!u) return '<button type="button" class="link" data-act="auth-open">Log in</button>';
   const name = (d.profile && d.profile.name) || u.displayName || u.email;
   return '<span class="small muted acct"><button type="button" class="link" data-act="account-open" title="Your account">' + esc(name) + '</button>' + (u.isAdmin ? ' · organizer' : '') + '</span><button type="button" class="link" data-act="logout">Log out</button>';
+}
+function howHTML(vm) {
+  const cap = vm && vm.capacity ? vm.capacity : 'the first';
+  return '<details class="how"><summary>How it works</summary><ol>' +
+    '<li>Create an account once (name and level). After that, joining a session is one tap.</li>' +
+    '<li>First come, first served: the first ' + esc(String(cap)) + ' on the list play, everyone after that waits on the bench and moves up automatically when someone leaves.</li>' +
+    '<li>Pay the organizer before the game and tap "I\'ve paid"; the teams are made from players who have paid.</li>' +
+    '<li>Can\'t make it? In the last 3 hours before the start you can leave right away; earlier, an organizer confirms your request so the spot can be given to the next person.</li></ol></details>';
 }
 function levelLabel(v) { const l = LEVELS.find(x => x[0] === v); return l ? v + ' · ' + l[1] : 'not set'; }
 function accountPageHTML() {
@@ -1141,17 +1205,41 @@ function accountPageHTML() {
       '<div class="actions"><button type="button" class="btn sm" data-act="account-password"' + (ui.acBusy ? ' disabled' : '') + '>Save password</button><button type="button" class="btn sm ghost" data-act="account-forgot">Forgot it? Reset by email</button></div></div>'
       : '<div class="small muted">You log in with Google, so there is no separate password for this page.</div>') +
     msg +
+    '<div class="hr"></div>' + myRecordHTML() +
+    '<div class="hr"></div>' + deleteAccountHTML(pw) +
     '<div class="actions small"><button type="button" class="link" data-act="account-close">Back to the list</button><span style="flex:1 1 auto"></span><button type="button" class="link" data-act="logout">Log out</button></div></div></section>';
+}
+// The own record: from the stored session summaries (played / bench / no-show) and the own sign-ups (leaves).
+function myRecord() {
+  const d = S.data; const u = d.user; if (!u) return null; const vm = S.vm; const name = nameKey((d.profile && d.profile.name) || '');
+  const sessions = vm.history.slice(); if (vm.played) sessions.push({ event: vm.event, attendees: vm.attendees.map(p => ({ name: p.name, uid: p.uid, noshow: !!p.noshow })) });
+  const r = { played: 0, bench: 0, noshow: 0, sessions: 0, left: 0, late: 0 };
+  sessions.forEach(s => { const cap = capacityOf(s.event || {}); (s.attendees || []).forEach((a, i) => { if (!((a.uid && a.uid === u.uid) || (name && nameKey(a.name) === name))) return; r.sessions++; if (cap && i >= cap) r.bench++; else if (a.noshow) r.noshow++; else r.played++; }); });
+  const startOf = {}; (d.sessions || []).forEach(x => { startOf[x.id] = x.startsAtMs || 0; });
+  (S.mySignups || []).forEach(x => { if (x.status !== 'left') return; r.left++; const st = startOf[x.sessionId]; if (st && x.leftAt && x.leftAt >= st - LEAVE_FREE_MS) r.late++; });
+  return r;
+}
+function myRecordHTML() {
+  const r = myRecord(); if (!r) return '';
+  const cell = (n, l) => '<span><b>' + n + '</b><small>' + l + '</small></span>';
+  return '<div class="stack"><div class="small" style="font-weight:600">Your record</div><div class="rec">' + cell(r.played, 'played') + cell(r.bench, 'bench') + cell(r.noshow, 'no-show') + cell(S.mySignups ? r.left : '…', 'left the list') + cell(S.mySignups ? r.late : '…', 'of them late') + '</div><div class="tip">Counted from past sessions. "Late" = left in the last 3 hours before the start.</div></div>';
+}
+function deleteAccountHTML(pw) {
+  const ui = U();
+  if (!ui.acDelete) return '<div class="actions small"><button type="button" class="link" style="color:var(--bad)" data-act="account-delete-ask">Delete my account</button></div>';
+  return '<div class="note bad"><div class="stack"><span><b>Delete your account?</b> This removes your login, your profile and your name from the group. Your name stays in the history of past sessions. ' + (S.vm.myKey ? 'You are on the current list: leave it first.' : '') + '</span>' +
+    (pw ? '<div class="field"><label class="f" for="acDelPw">Your password, to confirm</label><input class="inp" id="acDelPw" data-ui="acDelPw" type="password" autocomplete="current-password" value="' + esc(ui.acDelPw) + '"></div>' : '<span class="small">Google will ask you to confirm your account once more.</span>') +
+    '<span class="actions"><button type="button" class="btn sm danger" data-act="account-delete-yes"' + (S.vm.myKey ? ' disabled' : '') + '>Delete for good</button><button type="button" class="btn sm ghost" data-act="account-delete-no">Keep my account</button></span></div></div>';
 }
 function statusText() {
   const d = S.data;
-  if (d.mode === 'local') return 'Demo mode · data stays on this device · ' + APP_VERSION;
+  if (d.mode === 'local') return 'Demo mode · data stays on this device · ' + APP_LABEL;
   if (d.status === 'error') return d.error || 'Something went wrong with Firebase.';
   if (d.authError) return d.authError;
   if (d.status === 'connecting') return 'Connecting…';
   const last = S.lastChangeAt ? ' · last change ' + ago(Date.now() - S.lastChangeAt) : '';
-  if (d.status === 'offline' || !S.online) return 'Offline · showing the last data · ' + APP_VERSION + last;
-  return 'Live · ' + APP_VERSION + last;
+  if (d.status === 'offline' || !S.online) return 'Offline · showing the last data · ' + APP_LABEL + last;
+  return 'Live · ' + APP_LABEL + last;
 }
 function paintStatus() { const el = $('#statusText'); if (el) el.textContent = statusText(); }
 function statusHTML(vm) {
@@ -1248,7 +1336,8 @@ function meHTML(vm) {
     let line = onBench ? '<h3>You\'re on the bench · B' + (idx - vm.capacity + 1) + '</h3><p class="muted">' + (idx - vm.capacity === 0 ? 'You\'re first in line. ' : (idx - vm.capacity) + ' ahead of you. ') + 'You move up as soon as someone leaves.</p>'
       : '<h3>You\'re in · #' + (idx + 1) + '</h3><p class="muted small">Registered at ' + joinStamp(person) + ' (server time). The list is in the order the server received sign-ups.</p>';
     if (person.pending) line = '<h3>Saving your spot…</h3><p class="muted">Your place counts from the moment it reaches the list, usually within a second.</p>';
-    const pay = paid ? '<span class="pill ok">Paid</span>' : '<span class="pill">' + (price ? 'Pay ' + price + (S.cfg.organizer ? ' to ' + esc(S.cfg.organizer) : '') : 'Not paid yet') + '</span>';
+    const pay = paid ? '<span class="pill ok">Paid</span>' : person.claimed ? '<span class="pill warn">Paid? waiting for the organizer to confirm</span>' : '<span class="pill">' + (price ? 'Pay ' + price + (S.cfg.organizer ? ' to ' + esc(S.cfg.organizer) : '') : 'Not paid yet') + '</span>';
+    const payActs = paid ? '' : '<div class="actions">' + (person.claimed ? '<button type="button" class="btn xs ghost" data-act="paid-unclaim">Not paid yet, take it back</button>' : '<label class="chk"><input type="checkbox" data-act="paid-claim"> I\'ve paid</label>') + '</div>';
     let leave;
     if (person.leaving) leave = '<div class="note warn"><b>Leave requested.</b> An organizer has to confirm it. Until then you keep your spot, so nobody moves up yet.</div><div class="actions"><button type="button" class="btn sm ghost" data-act="leave-cancel">Changed your mind? Stay on the list</button></div>';
     else if (ui.leaveConfirm) {
@@ -1257,7 +1346,7 @@ function meHTML(vm) {
         : 'An organizer has to confirm this' + (from ? ' until ' + fmtWhen(from) + ' (3 hours before the start). After that you can leave right away.' : '.') + ' You keep your spot until they confirm.';
       leave = '<div class="note"><div class="stack"><span><b>Leave the list?</b> ' + esc(why) + '</span><span class="actions"><button type="button" class="btn sm danger" data-act="leave-yes">' + (free ? 'Yes, leave' : 'Yes, ask to leave') + '</button><button type="button" class="btn sm ghost" data-act="leave-no">No, stay</button></span></div></div>';
     } else leave = (person.declined ? '<div class="note">An organizer kept you on the list. Talk to them if you really can\'t make it.</div>' : '') + '<div class="actions"><button type="button" class="btn sm ghost" data-act="leave-ask">Can\'t make it? Leave the list</button></div>';
-    return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + '</span>' + pay + (person.leaving ? '<span class="pill warn">wants to leave</span>' : '') + '</div>' + leave + calendarHTML(ev) + '</div></section>';
+    return '<section class="card"><div class="stack">' + line + '<div class="actions"><span class="small muted">' + esc(person.name) + '</span>' + pay + (person.leaving ? '<span class="pill warn">wants to leave</span>' : '') + '</div>' + payActs + leave + calendarHTML(ev) + '</div></section>';
   }
   const full = vm.attendees.length >= vm.capacity; const benchFull = !!vm.listFull; const opens = opensAtDate(ev); const closed = !signupsOpen(ev);
   const mine = S.data.user ? (S.data.signups || []).find(x => x.sessionId === vm.eventId && x.uid === S.data.user.uid && x.addedBy === 'self') : null; const removed = !!(mine && mine.status === 'removed');
@@ -1265,7 +1354,7 @@ function meHTML(vm) {
   const head = closed ? '<h3>Not open yet</h3><p class="muted small">' + vm.capacity + ' spots, first come first served from the moment it opens. The server decides the order, so a changed clock on a phone makes no difference.</p>' + countdownHTML(ev)
     : '<h3>' + (benchFull ? 'Full · the bench is full too' : full ? 'Full · join the bench' : 'Join this session') + '</h3><p class="muted small">' + (benchFull ? 'All ' + vm.capacity + ' spots and the ' + vm.benchCap + ' bench places are taken. A place frees up when someone leaves.' : full ? 'You\'ll be B' + (vm.bench.length + 1) + (vm.benchCap != null ? ' of ' + vm.benchCap : '') + ' and move up when someone leaves.' : (vm.capacity - vm.attendees.length) + ' spot' + (vm.capacity - vm.attendees.length === 1 ? '' : 's') + ' left. First come, first served.') + '</p>';
   let btn;
-  if (!loggedIn()) btn = '<button type="button" class="btn big" data-act="auth-open">' + (closed ? 'Log in now, so you\'re ready' : 'Log in to join') + '</button><div class="actions small"><span class="muted">No account yet?</span><button type="button" class="link" data-act="auth-open" data-mode="register">Create one</button></div>';
+  if (!loggedIn()) btn = '<button type="button" class="btn big" data-act="auth-open">' + (closed ? 'Log in now, so you\'re ready' : 'Log in to join') + '</button><div class="actions small"><span class="muted">No account yet?</span><button type="button" class="link" data-act="auth-open" data-mode="register">Create one</button></div>' + howHTML(vm);
   else if (removed) btn = '<div class="note">The organizer took you off this session\'s list. Message them if that\'s a mistake.</div>';
   else if (benchFull) btn = '<button type="button" class="btn big" disabled>The list is full</button>';
   else if (closed) btn = '<button type="button" class="btn big" disabled>Join button appears when it opens</button><p class="small muted">You\'re logged in as ' + esc(myName) + '. Keep this page open; it switches to the Join button by itself.</p>';
@@ -1279,6 +1368,7 @@ function rowHTML(p, label, vm, benchRow) {
   if (p.noshow) right.push('<span class="pill" style="color:var(--bad);background:var(--bad-soft)">no-show</span>');
   if (org) {
     if (vm.played) right.push('<label class="chk"><input type="checkbox" data-act="noshow-toggle" data-key="' + esc(p.key) + '"' + (p.noshow ? ' checked' : '') + '> no-show</label>');
+    if (p.claimed) right.push('<span class="pill warn" title="The player says they have paid">says paid</span>');
     right.push('<label class="chk"><input type="checkbox" data-act="paid-toggle" data-key="' + esc(p.key) + '"' + (p.paid ? ' checked' : '') + '> paid</label>');
     if (!p.leaving) right.push(U().removeConfirm === p.key ? '<button type="button" class="btn xs danger" data-act="remove-yes" data-key="' + esc(p.key) + '">Remove</button><button type="button" class="btn xs ghost" data-act="remove-no">Keep</button>' : '<button type="button" class="btn xs ghost" data-act="remove-ask" data-key="' + esc(p.key) + '" title="Remove from list">×</button>');
   } else if (p.pending) right.push('<span class="pill pend">pending</span>');
@@ -1295,7 +1385,7 @@ function listsHTML(vm) {
   const add = isOrg() ? '<div class="actions" style="margin-top:12px"><input class="inp" style="flex:1 1 140px" id="addName" data-ui="addName" placeholder="Name" value="' + esc(U().addName) + '"><input class="inp" style="flex:1 1 140px" id="addEmail" data-ui="addEmail" placeholder="Email (optional)" value="' + esc(U().addEmail) + '"><button type="button" class="btn sm outline" data-act="add-player">Add to list</button></div>' : '';
   const pend = vm.attendees.filter(p => p.leaving);
   const notice = isOrg() && pend.length ? '<div class="note warn" style="margin-bottom:12px"><b>' + pend.length + (pend.length === 1 ? ' person wants' : ' people want') + ' to leave:</b> ' + esc(pend.map(p => p.name).join(', ')) + '. Use "Let go" or "Keep" next to the name. More than 3 hours before the start, leaving needs an organizer\'s okay; closer to it people leave by themselves.</div>' : '';
-  return notice + '<section><h2 class="sec">Playing <span class="cnt">' + vm.playing.length + ' of ' + vm.capacity + '</span></h2><div class="list">' + play + '</div>' + add + '</section>' +
+  return notice + '<section><h2 class="sec">Playing <span class="cnt">' + vm.playing.length + ' of ' + vm.capacity + '</span>' + (isOrg() ? '<span style="flex:1 1 auto"></span><button type="button" class="btn xs ghost" data-act="list-copy">Copy list</button>' : '') + '</h2><div class="list">' + play + '</div>' + add + '</section>' +
     '<section class="bench"><h2 class="sec"><span class="dot"></span>Bench <span class="cnt">' + vm.bench.length + (vm.benchCap != null ? ' of ' + vm.benchCap : '') + '</span></h2><div class="list">' + (bench || '<div class="empty">Empty. Anyone who joins after the list is full lands here, in order.</div>') + '</div>' + recentHTML(vm) + '</section>';
 }
 function attendanceStats(vm) {
@@ -1304,10 +1394,20 @@ function attendanceStats(vm) {
   sessions.forEach(s => { const cap = capacityOf(s.event || {}); (s.attendees || []).forEach((a, i) => { const k = String(a.name).toLowerCase(); const r = m.get(k) || { name: a.name, played: 0, bench: 0, noshow: 0 }; if (cap && i >= cap) r.bench++; else if (a.noshow) r.noshow++; else r.played++; m.set(k, r); }); });
   return [...m.values()].sort((a, b) => b.played - a.played || a.name.localeCompare(b.name));
 }
+// Leaves in the last 3 hours before a session's start, per person (organizers only; from the stored sign-ups).
+function lateLeaves(vm) {
+  const m = new Map(); const startOf = {}; (S.data.sessions || []).forEach(x => { startOf[x.id] = x.startsAtMs || 0; });
+  const seen = new Set();
+  const add = x => { if (!x || x.status === undefined && !x.leftAt) return; if (seen.has(x.id)) return; seen.add(x.id); const st = startOf[x.sessionId]; if (!st || !x.leftAt || x.leftAt < st - LEAVE_FREE_MS) return; const k = nameKey(x.name || ''); m.set(k, (m.get(k) || 0) + 1); };
+  (S.leftAll || []).forEach(add); (S.data.signups || []).filter(x => x.status === 'left').forEach(add);
+  return m;
+}
 function statsHTML(vm) {
   const rows = attendanceStats(vm); if (!rows.length) return '';
-  const cells = rows.map(r => '<span>' + esc(r.name) + '</span><span>' + r.played + '</span><span>' + r.bench + '</span><span>' + (r.noshow || '') + '</span>').join('');
-  return '<details class="hist stats"><summary><span>Attendance so far</span><span class="cnt">' + rows.length + ' people</span></summary><div class="hbody"><div class="statgrid"><b>Name</b><b>Played</b><b>Bench</b><b>No-show</b>' + cells + '</div></div></details>';
+  const org = isOrg(); let late = null;
+  if (org) { if (S.leftAll == null && !S.leftLoading && B.leftSignups) { S.leftLoading = true; B.leftSignups().then(r => { S.leftAll = r || []; }, () => { S.leftAll = []; }).then(() => { S.leftLoading = false; S.lastHTML = ''; render(); }); } late = lateLeaves(vm); }
+  const cells = rows.map(r => '<span>' + esc(r.name) + '</span><span>' + r.played + '</span><span>' + r.bench + '</span><span>' + (r.noshow || '') + '</span>' + (org ? '<span>' + (late.get(nameKey(r.name)) || '') + '</span>' : '')).join('');
+  return '<details class="hist stats"><summary><span>Attendance so far</span><span class="cnt">' + rows.length + ' people</span></summary><div class="hbody"><div class="statgrid' + (org ? ' org' : '') + '"><b>Name</b><b>Played</b><b>Bench</b><b>No-show</b>' + (org ? '<b title="Left in the last 3 hours before the start">Late leave</b>' : '') + cells + '</div>' + (org ? '<div class="tip">Late leave = left the list in the last 3 hours before the start. Only organizers see this column.</div>' : '') + '</div></details>';
 }
 function historyHTML(vm) {
   const h = vm.history; const ui = U();
@@ -1347,8 +1447,10 @@ function eventFormHTML(vm) {
     (cur ? '<div class="small muted">Current: ' + esc(fmtEventDate(cur)) + (cur.time ? ' ' + esc(cur.time) : '') + ' · ' + vm.attendees.length + ' signed up (' + vm.attendees.filter(p => p.paid).length + ' paid)</div>' : '<div class="small muted">No session yet. Fill this in and start one.</div>') +
     '<div class="grid2"><div class="field"><label class="f" for="evDate">Date</label><input class="inp" id="evDate" data-ui="evDate" type="date" value="' + esc(ev.date || '') + '"></div><div class="field"><label class="f" for="evTime">Time</label><input class="inp" id="evTime" data-ui="evTime" type="time" value="' + esc(ev.time || '') + '"></div></div>' +
     '<div class="field"><label class="f" for="evPlace">Place</label><input class="inp" id="evPlace" data-ui="evPlace" value="' + esc(ev.place || '') + '" placeholder="Hall or beach court"></div>' +
+    '<div class="grid2"><div class="field"><label class="f" for="evVenueType">Indoor / outdoor</label><select class="inp" id="evVenueType" data-ui="evVenueType"><option value=""' + (!ev.venueType ? ' selected' : '') + '>–</option><option value="indoor"' + (ev.venueType === 'indoor' ? ' selected' : '') + '>Indoor</option><option value="outdoor"' + (ev.venueType === 'outdoor' ? ' selected' : '') + '>Outdoor</option></select></div><div class="field"><label class="f" for="evFormats">Games <span class="muted">(for the announcement)</span></label><input class="inp" id="evFormats" data-ui="evFormats" value="' + esc(ev.formats || '') + '" placeholder="e.g. 3v3 / 4v4"></div></div>' +
     '<div class="grid3"><div class="field"><label class="f" for="evCap">Roster <span class="muted">(players)</span></label><input class="inp" id="evCap" data-ui="evCap" type="number" min="2" max="60" step="2" inputmode="numeric" value="' + esc(ev.cap == null ? 14 : ev.cap) + '"></div><div class="field"><label class="f" for="evBench">Bench <span class="muted">(max.)</span></label><input class="inp" id="evBench" data-ui="evBench" type="number" min="0" max="60" inputmode="numeric" value="' + esc(ev.bench == null ? 4 : ev.bench) + '"></div><div class="field"><label class="f" for="evPrice">Price per person</label><input class="inp" id="evPrice" data-ui="evPrice" value="' + esc(ev.price || '') + '" placeholder="8 €"></div></div>' +
     '<div class="grid2"><div class="field"><label class="f" for="evOpensAt">Sign-ups open at <span class="muted">(optional)</span></label><input class="inp" id="evOpensAt" data-ui="evOpensAt" type="datetime-local" value="' + esc(ev.opensAt || '') + '"></div><div class="field"><label class="f" for="evDuration">Duration (minutes)</label><input class="inp" id="evDuration" data-ui="evDuration" type="number" min="30" max="600" step="15" inputmode="numeric" value="' + esc(ev.duration || 120) + '"></div></div>' +
+    '<div class="chips"><span class="small muted" style="align-self:center">Open:</span><button type="button" class="chip" data-act="ev-open-preset" data-p="mon">Monday before, 20:00</button><button type="button" class="chip" data-act="ev-open-preset" data-p="d3">3 days before, 20:00</button><button type="button" class="chip" data-act="ev-open-preset" data-p="d7">1 week before, 20:00</button><button type="button" class="chip" data-act="ev-open-preset" data-p="none">Right away</button></div>' +
     '<div class="field"><label class="f" for="evNote">Note for players (optional)</label><input class="inp" id="evNote" data-ui="evNote" value="' + esc(ev.note || '') + '" placeholder="Bring a white or dark shirt"></div>' +
     '<div class="small muted"><b id="capPreview">' + cap + '</b> players play; after that <span id="benchPreview">' + (bench == null ? 'anyone can wait on the bench' : 'up to <b>' + bench + '</b> wait on the bench') + '</span>. The courts (2v2 to 5v5) are chosen when you generate the roster.' + (ev.opensAt ? ' Joins before the opening time don\'t count.' : '') + '</div>' +
     (cap % 2 ? '<div class="note bad">An odd roster count (' + cap + ') can\'t be split into courts: teams need an even number. Use ' + (cap - 1) + ' or ' + (cap + 1) + '.</div>' : '') +
@@ -1357,20 +1459,44 @@ function eventFormHTML(vm) {
     (cur || vm.history.length ? '<button type="button" class="btn sm ghost" data-act="ev-copy-last">Same as last time, +7 days</button>' : '') +
     '</div>' + (cur ? playedControlsHTML(vm) : '') + '</div>' + (cur && !vm.played ? announceHTML(vm) : '') + (cur ? paymentsHTML(vm) : '');
 }
+function announceDate(ev) { const d = eventDateObj(ev); if (!d) return ev.date || ''; return d.toLocaleDateString('en-GB', { weekday: 'long' }) + ', ' + d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }); }
+function announceFormats(vm) {
+  const ev = vm.event; const rc = rosterCourtsOf(vm.roster); const list = rc || (ev.formats ? null : suggestCourts(vm.capacity));
+  if (!rc && ev.formats) return ev.formats;
+  return FORMATS.filter(f => (list || []).includes(f)).join(' / ');
+}
 function announceText(vm) {
   const ev = vm.event; const L = [];
-  L.push('🏐 ' + (S.cfg.title || 'Volleyball') + ' · ' + fmtEventLong(ev) + (ev.time ? ' · ' + ev.time : '') + (ev.place ? ' · ' + ev.place : ''));
-  L.push([vm.capacity + ' spots' + (vm.benchCap != null ? ' + ' + vm.benchCap + ' on the bench' : ''), ev.price ? ev.price + ' per person' : ''].filter(Boolean).join(', ') + '.');
-  if (S.cfg.pageUrl) L.push('Sign up: ' + S.cfg.pageUrl);
-  L.push('First come, first served. Extras go on the bench and move up if someone drops out.');
-  const o = opensAtDate(ev); if (o && o.getTime() > now()) L.push('Sign-ups open ' + fmtWhen(o) + '.');
-  if (ev.note) L.push(ev.note);
+  L.push('🏐 ' + (S.cfg.title || 'Volleyball'));
+  L.push('');
+  L.push('📅 ' + announceDate(ev) + (ev.time ? ' · ' + ev.time : ''));
+  const venue = [ev.place, ev.venueType === 'indoor' ? 'Indoor' : (ev.venueType === 'outdoor' ? 'Outdoor' : '')].filter(Boolean).join(' · '); if (venue) L.push('📍 ' + venue);
+  const fm = announceFormats(vm); L.push('🏐 Mixed games' + (fm ? ' · ' + fm : ''));
+  L.push('👥 ' + vm.capacity + ' spots');
+  const pn = priceNumber(ev.price); if (ev.price) L.push('💶 ' + (pn ? fmtMoney(pn, '').trim() + ' EUR' : ev.price) + ' per person');
+  L.push('');
+  L.push('Spots are filled in sign-up order. If we’re full, we’ll add you to the waitlist. If a spot opens up, we’ll contact the next person on the list.');
+  const o = opensAtDate(ev); const extra = [];
+  if (S.cfg.pageUrl) extra.push('👉 Sign up: ' + S.cfg.pageUrl);
+  if (o && o.getTime() > now()) extra.push('⏰ Sign-ups open ' + fmtWhen(o));
+  if (ev.note) extra.push(ev.note);
+  if (extra.length) { L.push(''); extra.forEach(x => L.push(x)); }
   return L.join('\n');
 }
 function announceHTML(vm) {
-  const t = announceText(vm);
-  return '<div class="sub"><h2 class="sec">Announcement</h2><div class="note" style="white-space:pre-wrap">' + esc(t) + '</div>' + (S.cfg.pageUrl ? '' : '<div class="tip">Add the public link of the page in Setup so the announcement includes it.</div>') +
-    '<div class="actions"><a class="btn sm" href="https://wa.me/?text=' + encodeURIComponent(t) + '" target="_blank" rel="noopener">Share on WhatsApp</a><button type="button" class="btn sm ghost" data-act="announce-copy">Copy text</button></div></div>';
+  const t = announceText(vm); const url = S.cfg.pageUrl || '';
+  return '<div class="sub"><h2 class="sec">Announcement</h2><div class="note" style="white-space:pre-wrap">' + esc(t) + '</div>' + (url ? '' : '<div class="tip">Add the public link of the page in Settings so the announcement includes it.</div>') +
+    '<div class="actions"><a class="btn sm" href="https://wa.me/?text=' + encodeURIComponent(t) + '" target="_blank" rel="noopener">Share on WhatsApp</a><button type="button" class="btn sm ghost" data-act="announce-copy">Copy text</button>' + (url ? '<button type="button" class="btn sm ghost" data-act="link-copy">Copy link</button>' : '') + '</div>' +
+    (url ? '<div class="qr" id="qrBox" data-url="' + esc(url) + '"><div class="small muted">QR code of the sign-up page, to post with the announcement:</div></div><div class="actions"><button type="button" class="btn xs ghost" data-act="qr-save">Save QR as image</button></div>' : '') + '</div>';
+}
+// QR codes come from a small library that is only loaded when an organizer opens the panel.
+let qrLoading = null;
+function drawQR() {
+  const box = $('#qrBox'); if (!box) return; const url = box.dataset.url; if (!url || box.dataset.drawn === url) return;
+  const paint = () => { try { const q = qrcode(0, 'M'); q.addData(url); q.make(); box.dataset.drawn = url; const old = box.querySelector('svg, img, .qrerr'); if (old) old.remove(); box.insertAdjacentHTML('beforeend', q.createSvgTag({ cellSize: 4, margin: 2, scalable: true })); } catch (e) { box.dataset.drawn = url; box.insertAdjacentHTML('beforeend', '<div class="small muted qrerr">The QR code could not be made; share the link instead.</div>'); } };
+  if (window.qrcode) { paint(); return; }
+  if (!qrLoading) qrLoading = loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js').catch(() => { qrLoading = null; });
+  qrLoading.then(() => { if (window.qrcode) paint(); else if ($('#qrBox') && !$('#qrBox .qrerr')) $('#qrBox').insertAdjacentHTML('beforeend', '<div class="small muted qrerr">The QR code could not be loaded; share the link instead.</div>'); });
 }
 function priceNumber(price) { const m = String(price || '').replace(',', '.').match(/\d+(\.\d+)?/); return m ? parseFloat(m[0]) : 0; }
 function fmtMoney(n, price) { const cur = /€|eur/i.test(price || '') ? ' €' : (/\$/.test(price || '') ? ' $' : ''); return (Math.round(n * 100) / 100).toString().replace(/\.0+$/, '') + cur; }
@@ -1382,17 +1508,20 @@ function paymentsHTML(vm) {
   const ui = U(); const ev = vm.event; const att = vm.attendees; const paid = att.filter(p => p.paid); const unpaid = vm.playing.filter(p => !p.paid && !p.noshow);
   const pn = priceNumber(ev.price); const withMail = unpaid.filter(p => p.email);
   const summary = '<div class="small">Paid: <b>' + paid.length + '</b> of ' + att.length + (pn ? ' · collected <b>' + fmtMoney(paid.length * pn, ev.price) + '</b> · outstanding <b>' + fmtMoney(unpaid.length * pn, ev.price) + '</b>' : '') + '</div>';
-  if (!unpaid.length) return '<div class="sub"><h2 class="sec">Payments</h2>' + summary + '<div class="small muted">Everyone who plays has paid.</div></div>';
+  const claims = att.filter(p => p.claimed);
+  const claimsHTML = claims.length ? '<div class="note warn banner"><span><b>Says paid:</b> ' + esc(claims.map(p => p.name).join(', ')) + '</span><button type="button" class="btn xs" data-act="claims-confirm">Confirm ' + (claims.length === 1 ? 'it' : 'all ' + claims.length) + '</button></div>' : '';
+  if (!unpaid.length) return '<div class="sub"><h2 class="sec">Payments</h2>' + summary + claimsHTML + '<div class="small muted">Everyone who plays has paid.</div></div>';
   const t = reminderText(vm, unpaid);
   const mail = withMail.length ? '<a class="btn sm ghost" href="' + esc(mailtoHref(withMail.map(p => p.email), (S.cfg.title || 'Volleyball') + ' · payment for ' + fmtEventDate(ev), reminderText(vm, unpaid))) + '">Email reminder (' + withMail.length + ')</a>' : '';
   const all = ui.allPaidConfirm ? '<span class="small">Mark all ' + unpaid.length + ' as paid?</span><button type="button" class="btn sm" data-act="allpaid-yes">Yes, all paid</button><button type="button" class="btn sm ghost" data-act="allpaid-no">Cancel</button>' : '<button type="button" class="btn sm ghost" data-act="allpaid-ask">Mark everyone paid</button>';
-  return '<div class="sub"><h2 class="sec">Payments</h2>' + summary + '<div class="small muted">Still to pay: ' + esc(unpaid.map(p => p.name).join(', ')) + '</div>' +
+  return '<div class="sub"><h2 class="sec">Payments</h2>' + summary + claimsHTML + '<div class="small muted">Still to pay: ' + esc(unpaid.map(p => p.name).join(', ')) + '</div>' +
     '<div class="actions"><a class="btn sm outline" href="https://wa.me/?text=' + encodeURIComponent(t) + '" target="_blank" rel="noopener">Remind on WhatsApp</a><button type="button" class="btn sm ghost" data-act="reminder-copy">Copy reminder</button>' + mail + '</div>' +
     '<div class="actions">' + all + '</div></div>';
 }
 function playedControlsHTML(vm) {
   const ui = U();
-  if (vm.played) return '<div class="note ok banner"><span>Marked as played' + (vm.doneTs ? ' · ' + esc(fmtTime(vm.doneTs)) : '') + '. Sign-ups are closed; payments and no-shows can still be ticked in the list.</span><button type="button" class="btn xs ghost" data-act="reopen">Reopen</button></div>';
+  if (vm.played) return '<div class="note ok banner"><span>Marked as played' + (vm.doneTs ? ' · ' + esc(fmtTime(vm.doneTs)) : '') + '. Sign-ups are closed; payments and no-shows can still be ticked in the list.</span><button type="button" class="btn xs ghost" data-act="reopen">Reopen</button></div>' +
+    '<div class="actions"><button type="button" class="btn sm" data-act="ev-next-week">Start next week\'s session</button><span class="small muted">Same settings, 7 days later. The announcement is ready right after.</span></div>';
   if (ui.doneConfirm) {
     const sel = ui.noshowSel || {};
     const boxes = vm.playing.map(p => '<label class="chk"><input type="checkbox" data-act="noshow-sel" data-key="' + esc(p.key) + '"' + (sel[p.key] ? ' checked' : '') + '> ' + esc(p.name) + '</label>').join('');
@@ -1433,12 +1562,12 @@ function rosterCourtsHTML(ctx) {
   const status = !cap ? '<div class="note bad">This session has no roster count. Set it in the session form first.</div>'
     : ok ? '<div class="note ok">' + esc(courtsLabel(list)) + ': room for exactly ' + cap + ' players.</div>'
     : '<div class="note bad">These courts hold <b>' + hold + '</b> players, but the roster is <b>' + cap + '</b>. ' + (hold < cap ? 'Add room for ' + (cap - hold) + ' more.' : 'That is ' + (hold - cap) + ' too many.') + (cap % 2 ? ' An odd roster count can never match; change it in the session form.' : '') + '</div>';
-  return '<div class="stack"><div class="small muted">How many courts of each type? The roster has <b>' + cap + '</b> spots' + (paid !== cap ? ' (' + paid + ' paid so far)' : '') + '. The strongest players, by rating, go to the smallest courts.</div><div class="grid2">' + rows + '</div>' + status +
+  return '<div class="stack"><div class="small muted">How many courts of each type? The roster has <b>' + cap + '</b> spots' + (paid !== cap ? ' (' + paid + ' paid so far)' : '') + '. People who often played together are grouped first; the stronger groups get the smaller courts.</div><div class="grid2">' + rows + '</div>' + status +
     '<div class="actions"><button type="button" class="btn sm" data-act="roster-generate"' + (ok ? '' : ' disabled') + '>Generate teams</button><button type="button" class="btn sm ghost" data-act="roster-close">Cancel</button></div></div>';
 }
 function rosterHowHTML(ctx, courts) {
   const f = familiarity(ctx); const cl = courts || rosterCourtsFor(ctx); const sizes = new Set(cl.map(courtSize)); const multi = cl.length > 1;
-  return (sizes.size > 1 ? 'The strongest players (by rating) are on the smallest courts; ' : '') + (multi ? (f.sessions ? 'people who often played together share a court when the courts are the same size (from ' + f.sessions + ' past session' + (f.sessions === 1 ? '' : 's') + ' with saved teams); ' : 'without saved teams from past sessions, courts of the same size are mixed randomly; ') : '') + 'teams are split so their average levels are as close as possible.';
+  return (multi ? (f.sessions ? 'People who often played together are grouped first (from ' + f.sessions + ' past session' + (f.sessions === 1 ? '' : 's') + ' with saved teams)' + (sizes.size > 1 ? ', and the stronger groups take the smaller courts' : '') + '; ' : (sizes.size > 1 ? 'no saved teams from past sessions yet, so the strongest players (by rating) go to the smallest courts; ' : 'no saved teams from past sessions yet, so courts are mixed randomly; ')) : '') + 'teams are split so their average levels are as close as possible.';
 }
 function rosterEditorHTML(ctx) {
   const r = U().roster; const teams = draftFor(ctx) || []; const courts = rosterCourtsFor(ctx);
@@ -1473,7 +1602,7 @@ function setupHTML() {
 }
 /* ---- activity log (organizers) ---- */
 const LOG_LIMIT = 400;
-const LOG_GROUPS = { joins: ['join', 'rejoin', 'org-add'], leaves: ['leave', 'leave-request', 'leave-cancel', 'leave-approved', 'leave-declined', 'org-remove'], org: ['paid', 'unpaid', 'noshow', 'noshow-undo', 'played', 'reopened', 'session-create', 'session-update', 'roster', 'level', 'rating'], account: ['register', 'rename'] };
+const LOG_GROUPS = { joins: ['join', 'rejoin', 'org-add'], leaves: ['leave', 'leave-request', 'leave-cancel', 'leave-approved', 'leave-declined', 'org-remove'], org: ['paid', 'unpaid', 'paid-claim', 'paid-unclaim', 'noshow', 'noshow-undo', 'played', 'reopened', 'session-create', 'session-update', 'roster', 'level', 'rating', 'org-restore'], account: ['register', 'rename', 'account-delete'] };
 function logLine(e, plain) {
   const t = plain ? (x => String(x)) : esc; const b = plain ? (x => x) : (x => '<b>' + x + '</b>');
   const n = b(t(e.name || '?')), by = t(e.byName || 'an organizer'), dt = e.detail ? t(e.detail) : '';
@@ -1500,6 +1629,10 @@ function logLine(e, plain) {
     case 'rating': return by + ' rated ' + n + (dt ? ': ' + dt : '');
     case 'register': return n + ' created an account' + (dt ? ' · ' + dt : '');
     case 'rename': return (dt ? dt + ' is now ' + n : n + ' changed name');
+    case 'paid-claim': return n + ' says they have paid';
+    case 'paid-unclaim': return n + ' took back the payment note';
+    case 'org-restore': return by + ' put ' + n + ' back on the list';
+    case 'account-delete': return n + ' deleted their account';
     default: return n + ' ' + t(e.type) + (dt ? ' · ' + dt : '');
   }
 }
@@ -1548,7 +1681,7 @@ function render() {
   const a = document.activeElement; const keep = inputFocused() && a.id ? { id: a.id, start: a.selectionStart, end: a.selectionEnd, y: window.scrollY } : null;
   S.renderPending = false; S.lastHTML = html; $('#app').innerHTML = html; paintStatus();
   if (keep) { const el = document.getElementById(keep.id); if (el) { try { el.focus({ preventScroll: true }); if (keep.start != null && el.setSelectionRange) el.setSelectionRange(keep.start, keep.end); } catch (e) {} window.scrollTo(0, keep.y); } }
-  applyBusy();
+  applyBusy(); drawQR();
   S.openState = openNow;
   S.leaveState = S.vm.event ? leaveIsFree(S.vm.event) : undefined;
 }
@@ -1557,8 +1690,8 @@ function uiBench(e) { if (!e || e.bench == null || String(e.bench).trim() === ''
 function syncEventForm() {
   const ui = U(); const ev = S.vm.event;
   if (ui.evDirty) return;
-  if (ev) { const b = benchCapOf(ev); ui.ev = { date: ev.date || '', time: ev.time || '', place: ev.place || '', cap: capacityOf(ev) || 14, bench: b == null ? '' : b, price: ev.price || '', note: ev.note || '', opensAt: ev.opensAt || '', duration: ev.duration || 120 }; }
-  else if (!ui.ev) ui.ev = { date: '', time: '19:00', place: '', cap: 14, bench: 4, price: '', note: '', opensAt: '', duration: 120 };
+  if (ev) { const b = benchCapOf(ev); ui.ev = { date: ev.date || '', time: ev.time || '', place: ev.place || '', venueType: ev.venueType || '', formats: ev.formats || '', cap: capacityOf(ev) || 14, bench: b == null ? '' : b, price: ev.price || '', note: ev.note || '', opensAt: ev.opensAt || '', duration: ev.duration || 120 }; }
+  else if (!ui.ev) ui.ev = { date: '', time: '19:00', place: '', venueType: '', formats: '', cap: 14, bench: 4, price: '', note: '', opensAt: '', duration: 120 };
 }
 
 /* ================= actions ================= */
@@ -1570,7 +1703,15 @@ function eventFields() { const p = eventPayload(''); delete p.id; return p; }
 function eventPayload(id) {
   const e = U().ev || {}; const cap = uiCap(e) || 8; const bench = uiBench(e);
   const dur = Math.min(600, Math.max(30, parseInt(e.duration, 10) || 120));
-  return { id, date: e.date || localDateStr(new Date()), time: e.time || '', place: normName(e.place), capacity: cap, benchCap: bench, price: normName(e.price), note: normName(e.note), opensAt: (e.opensAt || '').trim(), duration: dur };
+  return { id, date: e.date || localDateStr(new Date()), time: e.time || '', place: normName(e.place), venueType: e.venueType === 'indoor' || e.venueType === 'outdoor' ? e.venueType : '', formats: String(e.formats || '').replace(/\s+/g, ' ').trim().slice(0, 40), capacity: cap, benchCap: bench, price: normName(e.price), note: normName(e.note), opensAt: (e.opensAt || '').trim(), duration: dur };
+}
+// The current list as plain text (for WhatsApp).
+function listText(vm) {
+  const ev = vm.event; const L = ['🏐 ' + (S.cfg.title || 'Volleyball') + ' · ' + fmtEventDate(ev) + (ev.time ? ' ' + ev.time : '') + (ev.place ? ' · ' + ev.place : '')];
+  L.push('Playing (' + vm.playing.length + '/' + vm.capacity + '):'); vm.playing.forEach((p, i) => L.push((i + 1) + '. ' + p.name));
+  if (vm.bench.length) { L.push('Bench:'); vm.bench.forEach((p, i) => L.push('B' + (i + 1) + '. ' + p.name)); }
+  if (S.cfg.pageUrl) L.push('Sign up: ' + S.cfg.pageUrl);
+  return L.join('\n');
 }
 // What an activity-log entry says about a person on the list.
 function logEntryFor(p, type) { return { type, sessionId: S.vm.eventId || '', name: p.name, uid: p.addedBy === 'self' ? (p.uid || '') : '', key: p.key }; }
@@ -1584,7 +1725,7 @@ function sessionDiff(before, after) {
   const cmp = (label, x, y) => { x = x == null ? '' : String(x); y = y == null ? '' : String(y); if (x !== y) out.push(label + ' ' + (x || '–') + ' → ' + (y || '–')); };
   cmp('date', b.date, after.date); cmp('time', b.time, after.time); cmp('place', b.place, after.place);
   cmp('roster', capacityOf(b), after.capacity); cmp('bench', benchText(benchCapOf(b)), benchText(after.benchCap)); cmp('price', b.price, after.price); cmp('opens', (b.opensAt || '').replace('T', ' '), (after.opensAt || '').replace('T', ' '));
-  cmp('duration', b.duration, after.duration); cmp('note', b.note, after.note);
+  cmp('duration', b.duration, after.duration); cmp('note', b.note, after.note); cmp('venue', b.venueType, after.venueType); cmp('games', b.formats, after.formats);
   return out.join('; ');
 }
 const actions = {
@@ -1641,7 +1782,29 @@ const actions = {
     const ok = await authRun(() => B.saveProfile({ name, level: ui.pfLevel }));
     if (ok) { ui.pfName = null; ui.pfLevel = 0; }
   },
-  'account-open': () => { const ui = U(); ui.accountOpen = true; ui.acName = null; ui.acPw0 = ui.acPw1 = ui.acPw2 = ''; ui.acErr = ''; ui.acInfo = ''; window.scrollTo(0, 0); render(); },
+  'account-open': () => { const ui = U(); ui.accountOpen = true; ui.acName = null; ui.acPw0 = ui.acPw1 = ui.acPw2 = ''; ui.acErr = ''; ui.acInfo = ''; ui.acDelete = false; ui.acDelPw = ''; window.scrollTo(0, 0); S.mySignups = null; if (B.mySignups) B.mySignups().then(r => { S.mySignups = r || []; }, () => { S.mySignups = []; }).then(() => { if (U().accountOpen) { S.lastHTML = ''; render(); } }); render(); },
+  'account-delete-ask': () => { const ui = U(); ui.acDelete = true; ui.acDelPw = ''; ui.acErr = ''; ui.acInfo = ''; render(); },
+  'account-delete-no': () => { U().acDelete = false; render(); },
+  'account-delete-yes': async () => {
+    const ui = U(); if (S.vm.myKey) { ui.acErr = 'Leave the current list first.'; render(); return; }
+    ui.acErr = ''; ui.acBusy = true; render();
+    try { await B.deleteAccount(ui.acDelPw); ui.accountOpen = false; ui.acDelete = false; toast('Your account has been deleted.', { ms: 5000 }); }
+    catch (e) { ui.acErr = /invalid-credential|wrong-password|invalid-login/.test(String(e && e.code)) ? 'The password is wrong.' : /requires-recent-login/.test(String(e && e.code)) ? 'For safety, log out, log in again and try once more.' : authText(e); }
+    ui.acBusy = false; render();
+  },
+  'paid-claim': async () => { const k = S.vm.myKey; const p = k && S.vm.people.get(k); if (!p) return; const ok = await run(() => B.claimPaid(k, logEntryFor(p)).then(() => true), 'leave'); if (ok) toast('Noted. The organizer will confirm it.'); },
+  'paid-unclaim': async () => { const k = S.vm.myKey; const p = k && S.vm.people.get(k); if (!p) return; await run(() => B.unclaimPaid(k, logEntryFor(p)), 'leave'); },
+  'claims-confirm': async () => { const claims = S.vm.attendees.filter(p => p.claimed); if (!claims.length) return; const ok = await run(() => B.updateSignups(claims.map(p => p.key), { paid: true }, claims.map(p => logEntryFor(p, 'paid'))).then(() => true), 'org'); if (ok) toast('Confirmed: ' + claims.map(p => p.name).join(', ')); },
+  'list-copy': () => copyText(listText(S.vm)),
+  'link-copy': () => { if (S.cfg.pageUrl) copyText(S.cfg.pageUrl); },
+  'qr-save': async () => { if (!window.qrcode || !S.cfg.pageUrl) { toast('The QR code is not ready yet.'); return; } try { const q = qrcode(0, 'M'); q.addData(S.cfg.pageUrl); q.make(); const dataUrl = q.createDataURL(10, 4); const blob = await (await fetch(dataUrl)).blob(); await saveFile('volleyball-signup-qr.gif', blob, 'image/gif'); } catch (e) { toast('Could not save the QR code.'); } },
+  'ev-open-preset': (el) => {
+    const ui = U(); ui.ev = ui.ev || {}; const p = el.dataset.p; const base = ui.ev.date ? new Date(ui.ev.date + 'T12:00') : new Date();
+    if (p === 'none') ui.ev.opensAt = '';
+    else { const d = new Date(base); if (p === 'mon') { const back = (d.getDay() + 6) % 7 || 7; d.setDate(d.getDate() - back); } else d.setDate(d.getDate() - (p === 'd7' ? 7 : 3)); ui.ev.opensAt = localDateStr(d) + 'T20:00'; }
+    ui.evDirty = true; render();
+  },
+  'ev-next-week': async () => { actions['ev-copy-last'](); await actions['ev-new-yes'](); const ev = S.vm.event; if (ev) toast('Next session started: ' + fmtEventDate(ev) + '. The announcement below is ready to share.', { ms: 5000 }); },
   'account-close': () => { const ui = U(); ui.accountOpen = false; ui.acErr = ''; ui.acInfo = ''; render(); },
   'account-forgot': async () => { const ui = U(); const email = S.data.user && S.data.user.email; if (!email) return; ui.acErr = ''; ui.acInfo = ''; ui.acBusy = true; render(); try { await B.resetPassword(email); ui.acInfo = 'Reset link sent to ' + email + '. Check spam too.'; } catch (e) { ui.acErr = authText(e); } ui.acBusy = false; render(); },
   'account-rename': async () => {
@@ -1663,7 +1826,7 @@ const actions = {
     catch (e) { ui.acErr = /invalid-credential|wrong-password|invalid-login/.test(String(e && e.code)) ? 'The current password is wrong.' : authText(e); }
     ui.acBusy = false; render();
   },
-  'logout': async () => { const ui = U(); ui.accountOpen = false; if (ui.logOpen) { ui.logOpen = false; B.unwatchLog(); } ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null, rc: null }; await run(() => B.signOut(), 'auth'); render(); },
+  'logout': async () => { const ui = U(); ui.accountOpen = false; ui.acDelete = false; S.mySignups = null; S.leftAll = null; if (ui.logOpen) { ui.logOpen = false; B.unwatchLog(); } ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null, rc: null }; await run(() => B.signOut(), 'auth'); render(); },
   'cal-ics': async () => { const ev = S.vm.event; if (!ev) return; await saveFile('volleyball-' + (ev.date || 'session') + '.ics', icsText(ev), 'text/calendar'); },
   'leave-ask': () => { U().leaveConfirm = true; render(); },
   'leave-no': () => { U().leaveConfirm = false; render(); },
@@ -1694,7 +1857,7 @@ const actions = {
   'paid-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; const ok = await run(() => B.updateSignup(k, { paid: !p.paid }, logEntryFor(p, p.paid ? 'unpaid' : 'paid')).then(() => true), 'org'); if (ok) toast(p.name + (p.paid ? ': not paid' : ': paid ✓')); },
   'remove-ask': (el) => { U().removeConfirm = el.dataset.key; render(); },
   'remove-no': () => { U().removeConfirm = null; render(); },
-  'remove-yes': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); U().removeConfirm = null; if (!p) { render(); return; } const up = movesUpFor(p); const ok = await run(() => B.updateSignup(k, { status: 'removed' }, withMoveUp(logEntryFor(p, 'org-remove'), p)).then(() => true), 'org'); if (ok) toast(p.name + ' removed from the list' + (up ? ' · ' + up.name + ' moves up from the bench' : '')); },
+  'remove-yes': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); U().removeConfirm = null; if (!p) { render(); return; } const up = movesUpFor(p); const ok = await run(() => B.updateSignup(k, { status: 'removed' }, withMoveUp(logEntryFor(p, 'org-remove'), p)).then(() => true), 'org'); if (ok) toast(p.name + ' removed from the list' + (up ? ' · ' + up.name + ' moves up from the bench' : ''), { ms: 10000, action: { label: 'Undo', fn: async () => { const back = await run(() => B.updateSignup(k, { status: 'active' }, logEntryFor(p, 'org-restore')).then(() => true), 'org'); if (back) toast(p.name + ' is back on the list.'); } } }); },
   'add-player': async () => {
     const ui = U(); const name = normName(ui.addName).slice(0, 60); const email = normEmail(ui.addEmail);
     if (!name) { toast('Enter a name first.'); return; }
@@ -1732,7 +1895,7 @@ const actions = {
     const bc = benchCapOf(src); const d = eventDateObj(src) || new Date(); const next = new Date(d); next.setDate(next.getDate() + 7);
     let opensAt = '';
     if (src.opensAt) { const o = new Date(src.opensAt); if (!isNaN(o)) { o.setDate(o.getDate() + 7); opensAt = localDateStr(o) + 'T' + pad(o.getHours()) + ':' + pad(o.getMinutes()); } }
-    U().ev = { date: localDateStr(next), time: src.time || '', place: src.place || '', cap: capacityOf(src) || 14, bench: bc == null ? '' : bc, price: src.price || '', note: src.note || '', opensAt, duration: src.duration || 120 };
+    U().ev = { date: localDateStr(next), time: src.time || '', place: src.place || '', venueType: src.venueType || '', formats: src.formats || '', cap: capacityOf(src) || 14, bench: bc == null ? '' : bc, price: src.price || '', note: src.note || '', opensAt, duration: src.duration || 120 };
     U().evDirty = true; render(); toast('Filled in from the last session. Check it, then start the new session.');
   },
   'announce-copy': () => copyText(announceText(S.vm)),
@@ -1811,7 +1974,7 @@ function init() {
   window.addEventListener('offline', () => { S.online = false; S.lastHTML = ''; render(); });
   app.addEventListener('change', e => {
     const el = e.target;
-    if (el.dataset && (el.dataset.act === 'paid-toggle' || el.dataset.act === 'noshow-toggle' || el.dataset.act === 'noshow-sel')) { actions[el.dataset.act](el); return; }
+    if (el.dataset && (el.dataset.act === 'paid-toggle' || el.dataset.act === 'noshow-toggle' || el.dataset.act === 'noshow-sel' || el.dataset.act === 'paid-claim')) { actions[el.dataset.act](el); return; }
     handleInput(el);
   });
   app.addEventListener('input', e => handleInput(e.target));
@@ -1868,7 +2031,7 @@ function handleInput(el) {
   if (/^ac/.test(k)) { ui.acErr = ''; ui.acInfo = ''; }
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, suggestCourts, courtsLabel, capacityOf, benchCapOf, announceText, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, logCSV, logRows, logLine, get B() { return B; } };
+window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, suggestCourts, courtsLabel, capacityOf, benchCapOf, announceText, listText, myRecord, lateLeaves, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, logCSV, logRows, logLine, get B() { return B; } };
 })();
 </script>
 
