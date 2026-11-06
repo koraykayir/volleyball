@@ -388,6 +388,7 @@ function balanceTeams(ctx) {
 
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
+const APP_VERSION = 'v6';
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
   if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'This sign-in method is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
@@ -873,12 +874,12 @@ function accountHTML() {
 }
 function statusText() {
   const d = S.data;
-  if (d.mode === 'local') return 'Demo mode · data stays on this device';
+  if (d.mode === 'local') return 'Demo mode · data stays on this device · ' + APP_VERSION;
   if (d.status === 'error') return d.error || 'Something went wrong with Firebase.';
   if (d.authError) return d.authError;
   if (d.status === 'connecting') return 'Connecting…';
-  if (d.status === 'offline') return 'Offline · showing the last data';
-  return 'Live';
+  if (d.status === 'offline') return 'Offline · showing the last data · ' + APP_VERSION;
+  return 'Live · ' + APP_VERSION;
 }
 function paintStatus() { const el = $('#statusText'); if (el) el.textContent = statusText(); }
 function statusHTML(vm) {
