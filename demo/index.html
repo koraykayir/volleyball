@@ -6,6 +6,7 @@
 <!--artifact:head-start-->
 <title>Volleyball Sign-up</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<meta http-equiv="Cache-Control" content="no-cache">
 <meta name="theme-color" content="#1E4FD6">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -388,7 +389,7 @@ function balanceTeams(ctx) {
 
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v6';
+const APP_VERSION = 'v7';
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
   if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'This sign-in method is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
@@ -1355,6 +1356,20 @@ function init() {
   app.addEventListener('focusout', () => { if (S.renderPending) setTimeout(() => { if (S.renderPending && !inputFocused()) render(); }, 350); });
   setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && ev.opensAt && S.openState !== (Date.now() >= new Date(ev.opensAt).getTime())) render(); else paintStatus(); }, 5000);
   B.start(onData);
+  checkForUpdate();
+}
+/* GitHub Pages and browsers like to keep an old copy of this file. Ask the server for the current
+   version tag; if it differs from ours, reload once (not more, so a stale cache can't cause a loop). */
+async function checkForUpdate() {
+  if (!/^https?:/.test(location.protocol) || inArtifact()) return;
+  try {
+    const r = await fetch(location.pathname.replace(/[^/]*$/, '') + 'version.txt?_=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const latest = (await r.text()).trim();
+    if (!/^v\d+$/.test(latest) || latest === APP_VERSION) return;
+    const key = 'vb.reloadedFor'; if (store.get(key, '') === latest) return;
+    store.set(key, latest); location.reload();
+  } catch (e) {}
 }
 function handleInput(el) {
   if (!el || !el.dataset || !el.dataset.ui) return;
