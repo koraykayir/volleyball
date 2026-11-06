@@ -42,8 +42,11 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t == request.time;
     }
 
+    function profileAfter(uid) { return getAfter(/databases/$(database)/documents/players/$(uid)).data; }
+
     // Claimed display names, one per account: makes names unique across the group.
-    // Create-only, so two people cannot end up with the same name (the batch of the second one fails).
+    // A claim can only be created (never overwritten), and must match the owner's profile name in the
+    // same write, so two people cannot end up with the same name. Renaming deletes the old claim.
     match /names/{key} {
       allow get: if signedIn();
       allow list: if isAdmin();
@@ -51,13 +54,15 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['uid', 'name'])
         && request.resource.data.uid == request.auth.uid
         && validName(request.resource.data.name)
-        && key == request.resource.data.name.lower();
+        && key == request.resource.data.name.lower()
+        && profileAfter(request.auth.uid).name.lower() == key;
       allow update: if false;
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid
+        && profileAfter(request.auth.uid).name.lower() != key);
     }
 
     // Player profiles: created once by the player with a level of 1 to 5 (together with their name claim).
-    // Afterwards only the organizer changes level or name.
+    // The player may rename themselves (the new name must be claimed in the same write); only the organizer changes the level.
     match /players/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow create: if signedIn() && request.auth.uid == uid
@@ -66,10 +71,14 @@ service cloud.firestore {
         && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5
         && request.resource.data.email == email()
         && request.resource.data.createdAt == request.time;
-      allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['level', 'name'])
-        && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5
-        && validName(request.resource.data.name);
+      allow update: if (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['level', 'name'])
+          && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5
+          && validName(request.resource.data.name))
+        || (signedIn() && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+          && validName(request.resource.data.name)
+          && getAfter(/databases/$(database)/documents/names/$(request.resource.data.name.lower())).data.uid == uid);
       allow delete: if isAdmin();
     }
 
@@ -101,10 +110,14 @@ service cloud.firestore {
         && sessionOpen(request.resource.data.sessionId));
       allow update: if isAdmin() || (signedIn()
         && resource.data.uid == request.auth.uid && resource.data.addedBy == 'self'
-        && sessionData(resource.data.sessionId).status == 'open'
         && (
+          // rename (the profile carries the same new name in this write)
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+            && request.resource.data.name == profileAfter(request.auth.uid).name)
+          ||
           // leave
           (resource.data.status == 'active'
+            && sessionData(resource.data.sessionId).status == 'open'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'leftAt'])
             && request.resource.data.status == 'left' && request.resource.data.leftAt == request.time)
           ||

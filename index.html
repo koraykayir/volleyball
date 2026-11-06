@@ -324,6 +324,7 @@ const S = {
   ui: {
     joinName: '', joinEmail: '', joinErr: '', dup: null, leaveConfirm: false, guestOpen: false, guestName: '',
     orgOpen: false, orgErr: '', orgBusy: false,
+    accountOpen: false, acName: null, acPw0: '', acPw1: '', acPw2: '', acErr: '', acInfo: '', acBusy: false,
     authOpen: false, authMode: 'login', authErr: '', authInfo: '', authBusy: false, auName: '', auEmail: '', auPass: '', auLevel: 0, pfName: null, pfLevel: 0,
     addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false,
     ev: null, evDirty: false,
@@ -394,7 +395,7 @@ function balanceTeams(ctx) {
 
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v10';
+const APP_VERSION = 'v11';
 const nameKey = n => normName(n).toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
@@ -412,6 +413,8 @@ function authText(e) {
   if (/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c)) return 'Wrong email or password.';
   if (/email-already-in-use/.test(c)) return 'There is already an account with this email. Log in instead (with Google if you used Google before), or use "Forgot password?".';
   if (/vb\/name-taken/.test(c)) return 'That name is already taken in this group. Add your last name or an initial so people can tell you apart.';
+  if (/vb\/no-password/.test(c)) return 'This account logs in with Google, so there is no password to change here.';
+  if (/requires-recent-login/.test(c)) return 'For safety, log out and log in again before changing the password.';
   if (/weak-password/.test(c)) return 'Use a password with at least 6 characters.';
   if (/invalid-email/.test(c)) return 'That email doesn\'t look right.';
   if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes and try again.';
@@ -566,6 +569,25 @@ function firebaseBackend(conf) {
       await createProfile(u, name, level);
     },
     resetPassword(email) { return auth.sendPasswordResetEmail(email); },
+    // Rename: profile, name claim and this session's entry change together, so the list follows at once.
+    async rename(newName) {
+      const u = me(); const old = (d.profile && d.profile.name) || ''; const nk = nameKey(newName), ok = nameKey(old);
+      if (nk !== ok && await this.isNameTaken(newName)) throw nameTaken();
+      const b = fs.batch();
+      b.update(fs.collection('players').doc(u.uid), { name: newName });
+      if (nk !== ok) {
+        // free the old claim only if it is really ours (accounts from before unique names may have none)
+        if (ok) { const oc = await fs.collection('names').doc(ok).get(); if (oc.exists && oc.data().uid === u.uid) b.delete(oc.ref); }
+        b.set(fs.collection('names').doc(nk), { uid: u.uid, name: newName });
+      }
+      (d.signups || []).filter(x => x.uid === u.uid && x.addedBy === 'self' && x.status === 'active').forEach(x => b.update(fs.collection('signups').doc(x.id), { name: newName }));
+      try { await b.commit(); } catch (e) { if (/permission-denied/.test(String(e && e.code))) throw nameTaken(); throw e; }
+      try { await u.updateProfile({ displayName: newName }); } catch (e) {}
+    },
+    async changePassword(current, next) {
+      const u = me(); const cred = firebase.auth.EmailAuthProvider.credential(u.email, current);
+      await u.reauthenticateWithCredential(cred); await u.updatePassword(next);
+    },
     signOut() { return auth.signOut(); }
   };
 }
@@ -608,7 +630,7 @@ function localBackend() {
   const login = (email, provider, name) => { if (!db.accounts[email]) db.accounts[email] = { uid: 'u' + randomHex(10), email, provider, name: name || '' }; session = email; emit(); };
   return {
     mode: 'local',
-    start(onChange) { cb = onChange; emit(); },
+    start(onChange) { cb = onChange; emit(); window.addEventListener('storage', e => { if (e.key === KEY && e.newValue) { try { db = JSON.parse(e.newValue); if (cb) cb(snapshot()); } catch (x) {} } }); },
     async join({ sessionId, name }) {
       const uid = curUid(); const k = sessionId + '_' + uid; const ex = db.signups[k];
       if (ex && ex.status === 'active') return k;
@@ -643,6 +665,14 @@ function localBackend() {
     },
     async saveProfile({ name, level }) { const uid = curUid(); if (db.players[uid]) return; const n = db.names[nameKey(name)]; if (n && n.uid !== uid) throw err('vb/name-taken', 'name taken'); db.players[uid] = { name, level, email: (db.accounts[session] || {}).email || '' }; db.names[nameKey(name)] = { uid, name }; emit(); },
     async resetPassword() {},
+    async rename(newName) {
+      const uid = curUid(); const pl = db.players[uid]; if (!pl) return; const nk = nameKey(newName), ok = nameKey(pl.name);
+      const taken = db.names[nk]; if (nk !== ok && taken && taken.uid !== uid) throw err('vb/name-taken', 'name taken');
+      if (nk !== ok) { delete db.names[ok]; db.names[nk] = { uid, name: newName }; }
+      pl.name = newName; if (db.accounts[session]) db.accounts[session].name = newName;
+      Object.values(db.signups).forEach(x => { if (x.uid === uid && x.addedBy === 'self' && x.status === 'active') x.name = newName; }); emit();
+    },
+    async changePassword(current, next) { const a = db.accounts[session]; if (!a || a.provider !== 'password') throw err('vb/no-password', 'no password'); if (a.pw !== current) throw err('auth/invalid-credential', 'wrong'); a.pw = next; emit(); },
     async openOrganizerDemo() { admin = true; store.set('vb.localAdmin', true); emit(); },
     async signOut() { session = null; admin = false; store.set('vb.localAdmin', false); emit(); },
     async clearExamples() { const keep = {}; Object.values(db.accounts || {}).forEach(a => { if (db.players[a.uid]) { keep[a.uid] = db.players[a.uid]; } }); const names = {}; Object.entries(db.names || {}).forEach(([k, v]) => { if (keep[v.uid]) names[k] = v; }); db = { example: false, config: { title: (db.config && db.config.title) || 'Volleyball' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: keep, names, accounts: db.accounts || {}, pairs: { together: '', apart: '' } }; emit(); },
@@ -859,6 +889,7 @@ const U = () => S.ui;
 function viewHTML() {
   const vm = S.vm; const ui = U();
   if (needsProfile()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + profileHTML() + '</div>';
+  if (ui.accountOpen && loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + accountPageHTML() + '</div>';
   if (ui.authOpen && !loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + authHTML() + '</div>';
   return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + examplesHTML() + finalRosterHTML(vm) + meHTML(vm) + listsHTML(vm) + historyHTML(vm) + orgHTML(vm) + footerHTML(vm) + '</div>';
 }
@@ -899,7 +930,8 @@ function authHTML() {
     '<div class="field"><label class="f" for="auEmail">Email</label><input class="inp" id="auEmail" data-ui="auEmail" type="email" autocomplete="email" value="' + esc(ui.auEmail) + '"></div>' +
     '<div class="field"><label class="f" for="auPass">Password</label><input class="inp" id="auPass" data-ui="auPass" type="password" autocomplete="current-password" value="' + esc(ui.auPass) + '"></div>' + err +
     '<button type="button" class="btn big" data-act="auth-login"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Logging in…' : 'Log in') + '</button>' +
-    '<div class="actions small"><button type="button" class="link" data-act="auth-mode" data-mode="reset">Forgot password?</button><span style="flex:1 1 auto"></span><span class="muted">New here?</span><button type="button" class="link" data-act="auth-mode" data-mode="register">Create an account</button></div>';
+    '<button type="button" class="btn big ghost" data-act="auth-mode" data-mode="reset">Forgot password? Reset it by email</button>' +
+    '<div class="actions small"><span class="muted">New here?</span><button type="button" class="link" data-act="auth-mode" data-mode="register">Create an account</button></div>';
   return '<section class="card authcard"><div class="stack">' + body + '<div class="actions small">' + close + '</div></div></section>';
 }
 function profileHTML() {
@@ -915,7 +947,28 @@ function accountHTML() {
   const d = S.data; const u = d.user;
   if (!u) return '<button type="button" class="link" data-act="auth-open">Log in</button>';
   const name = (d.profile && d.profile.name) || u.displayName || u.email;
-  return '<span class="small muted acct">' + esc(name) + (u.isAdmin ? ' · organizer' : '') + '</span><button type="button" class="link" data-act="logout">Log out</button>';
+  return '<span class="small muted acct"><button type="button" class="link" data-act="account-open" title="Your account">' + esc(name) + '</button>' + (u.isAdmin ? ' · organizer' : '') + '</span><button type="button" class="link" data-act="logout">Log out</button>';
+}
+function levelLabel(v) { const l = LEVELS.find(x => x[0] === v); return l ? v + ' · ' + l[1] : 'not set'; }
+function accountPageHTML() {
+  const ui = U(); const d = S.data; const u = d.user; const pr = d.profile || {};
+  if (ui.acName == null) ui.acName = pr.name || u.displayName || '';
+  const pw = u.provider === 'password' || (d.mode === 'local' && u.provider === 'password');
+  const msg = (ui.acErr ? '<div class="note bad">' + esc(ui.acErr) + '</div>' : '') + (ui.acInfo ? '<div class="note ok">' + esc(ui.acInfo) + '</div>' : '');
+  return '<section class="card authcard"><div class="stack"><h3>Your account</h3>' +
+    '<div class="field"><label class="f" for="acName">Name (shown on the list)</label><input class="inp" id="acName" data-ui="acName" autocomplete="name" maxlength="60" value="' + esc(ui.acName) + '"></div>' +
+    '<div class="actions"><button type="button" class="btn sm" data-act="account-rename"' + (ui.acBusy ? ' disabled' : '') + '>Save name</button><span class="small muted">Names are unique in the group. The list updates for everyone.</span></div>' +
+    '<div class="hr"></div>' +
+    '<div class="small">Level: <b>' + esc(levelLabel(pr.level)) + '</b> <span class="muted">· set once at registration; ask the organizer to change it</span></div>' +
+    '<div class="small">Email: <b>' + esc(u.email || '') + '</b></div>' +
+    '<div class="hr"></div>' +
+    (pw ? '<div class="stack"><div class="small" style="font-weight:600">Change password</div>' +
+      '<div class="field"><label class="f" for="acPw0">Current password</label><input class="inp" id="acPw0" data-ui="acPw0" type="password" autocomplete="current-password" value="' + esc(ui.acPw0) + '"></div>' +
+      '<div class="grid2"><div class="field"><label class="f" for="acPw1">New password <span class="muted">(at least 6 characters)</span></label><input class="inp" id="acPw1" data-ui="acPw1" type="password" autocomplete="new-password" value="' + esc(ui.acPw1) + '"></div><div class="field"><label class="f" for="acPw2">Repeat new password</label><input class="inp" id="acPw2" data-ui="acPw2" type="password" autocomplete="new-password" value="' + esc(ui.acPw2) + '"></div></div>' +
+      '<div class="actions"><button type="button" class="btn sm" data-act="account-password"' + (ui.acBusy ? ' disabled' : '') + '>Save password</button><button type="button" class="btn sm ghost" data-act="account-forgot">Forgot it? Reset by email</button></div></div>'
+      : '<div class="small muted">You log in with Google, so there is no separate password for this page.</div>') +
+    msg +
+    '<div class="actions small"><button type="button" class="link" data-act="account-close">Back to the list</button><span style="flex:1 1 auto"></span><button type="button" class="link" data-act="logout">Log out</button></div></div></section>';
 }
 function statusText() {
   const d = S.data;
@@ -1223,8 +1276,9 @@ function render() {
   syncEventForm();
   const html = viewHTML();
   if (html === S.lastHTML) { paintStatus(); return; }
-  if (inputFocused()) { S.renderPending = true; paintStatus(); return; }
+  const a = document.activeElement; const keep = inputFocused() && a.id ? { id: a.id, start: a.selectionStart, end: a.selectionEnd, y: window.scrollY } : null;
   S.renderPending = false; S.lastHTML = html; $('#app').innerHTML = html; paintStatus();
+  if (keep) { const el = document.getElementById(keep.id); if (el) { try { el.focus({ preventScroll: true }); if (keep.start != null && el.setSelectionRange) el.setSelectionRange(keep.start, keep.end); } catch (e) {} window.scrollTo(0, keep.y); } }
   S.openState = S.vm.event && opensAtMs(S.vm.event) ? signupsOpen(S.vm.event) : undefined;
 }
 function uiCourts(e) {
@@ -1303,7 +1357,29 @@ const actions = {
     const ok = await authRun(() => B.saveProfile({ name, level: ui.pfLevel }));
     if (ok) { ui.pfName = null; ui.pfLevel = 0; }
   },
-  'logout': async () => { const ui = U(); ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null }; await run(() => B.signOut(), 'auth'); render(); },
+  'account-open': () => { const ui = U(); ui.accountOpen = true; ui.acName = null; ui.acPw0 = ui.acPw1 = ui.acPw2 = ''; ui.acErr = ''; ui.acInfo = ''; window.scrollTo(0, 0); render(); },
+  'account-close': () => { const ui = U(); ui.accountOpen = false; ui.acErr = ''; ui.acInfo = ''; render(); },
+  'account-forgot': async () => { const ui = U(); const email = S.data.user && S.data.user.email; if (!email) return; ui.acErr = ''; ui.acInfo = ''; ui.acBusy = true; render(); try { await B.resetPassword(email); ui.acInfo = 'Reset link sent to ' + email + '. Check spam too.'; } catch (e) { ui.acErr = authText(e); } ui.acBusy = false; render(); },
+  'account-rename': async () => {
+    const ui = U(); const name = normName(ui.acName || '').slice(0, 60); const cur = (S.data.profile && S.data.profile.name) || '';
+    ui.acErr = ''; ui.acInfo = '';
+    if (!name) { ui.acErr = 'Enter a name.'; render(); return; }
+    if (name === cur) { ui.acInfo = 'That is already your name.'; render(); return; }
+    ui.acBusy = true; render();
+    try { await B.rename(name); ui.acInfo = 'Name changed to ' + name + '.'; } catch (e) { ui.acErr = authText(e); }
+    ui.acBusy = false; render();
+  },
+  'account-password': async () => {
+    const ui = U(); ui.acErr = ''; ui.acInfo = '';
+    if (!ui.acPw0) { ui.acErr = 'Enter your current password.'; render(); return; }
+    if ((ui.acPw1 || '').length < 6) { ui.acErr = 'Use a new password with at least 6 characters.'; render(); return; }
+    if (ui.acPw1 !== ui.acPw2) { ui.acErr = 'The new passwords do not match.'; render(); return; }
+    ui.acBusy = true; render();
+    try { await B.changePassword(ui.acPw0, ui.acPw1); ui.acInfo = 'Password changed.'; ui.acPw0 = ui.acPw1 = ui.acPw2 = ''; }
+    catch (e) { ui.acErr = /invalid-credential|wrong-password|invalid-login/.test(String(e && e.code)) ? 'The current password is wrong.' : authText(e); }
+    ui.acBusy = false; render();
+  },
+  'logout': async () => { const ui = U(); ui.accountOpen = false; ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null }; await run(() => B.signOut(), 'auth'); render(); },
   'cal-ics': async () => { const ev = S.vm.event; if (!ev) return; await saveFile('volleyball-' + (ev.date || 'session') + '.ics', icsText(ev), 'text/calendar'); },
   'leave-ask': () => { U().leaveConfirm = true; render(); },
   'leave-no': () => { U().leaveConfirm = false; render(); },
@@ -1423,7 +1499,6 @@ function init() {
   app.addEventListener('input', e => handleInput(e.target));
   app.addEventListener('toggle', e => { const d = e.target; if (d && d.classList && d.classList.contains('hist') && d.dataset.id) { if (d.open) U().histOpenIds[d.dataset.id] = true; else delete U().histOpenIds[d.dataset.id]; } }, true);
   app.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'addName') { actions['add-player'](); } if (e.key === 'Enter' && e.target.id === 'auPass') { actions[U().authMode === 'register' ? 'auth-register' : 'auth-login'](); } });
-  app.addEventListener('focusout', () => { if (S.renderPending) setTimeout(() => { if (S.renderPending && !inputFocused()) render(); }, 350); });
   setInterval(() => { if (document.hidden) return; const ev = S.vm && S.vm.event; if (ev && opensAtMs(ev) && S.openState !== signupsOpen(ev)) { S.lastHTML = ''; render(); } else paintStatus(); }, 5000);
   setInterval(() => { if (!document.hidden) tickCountdown(); }, 1000);
   B.start(onData);
@@ -1462,6 +1537,7 @@ function handleInput(el) {
   }
   ui[k] = v;
   if (/^(au|pf)/.test(k)) ui.authErr = '';
+  if (/^ac/.test(k)) { ui.acErr = ''; ui.acInfo = ''; }
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, balanceTeams, announceText, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, get B() { return B; } };
