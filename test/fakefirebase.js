@@ -53,7 +53,7 @@
       update: data => store.has(path) ? apply([{ type: 'update', path, data }]) : Promise.reject(Object.assign(new Error('No document to update'), { code: 'not-found' })),
       delete: () => apply([{ type: 'delete', path }]),
       get: () => { if (rules && rules.get) { let ok = false; try { ok = rules.get(path, currentUser, store); } catch (e) { ok = false; } if (!ok) { window.__fake.denials = (window.__fake.denials || []).concat([['get ' + path]]); return denied(); } } return Promise.resolve(snapDoc(path, store.get(path))); },
-      onSnapshot(a, b, c) { const next = typeof a === 'function' ? a : b; const l = () => next(snapDoc(path, store.get(path))); listeners.add(l); setTimeout(l, 5); return () => listeners.delete(l); }
+      onSnapshot(a, b, c) { const next = typeof a === 'function' ? a : b; const onErr = typeof a === 'function' ? b : c; if (rules && rules.get) { let ok = false; try { ok = rules.get(path, currentUser, store); } catch (e) { ok = false; } if (!ok) { window.__fake.denials = (window.__fake.denials || []).concat([['listen ' + path]]); setTimeout(() => onErr && onErr(Object.assign(new Error('Missing or insufficient permissions.'), { code: 'permission-denied' })), 5); return () => {}; } } const l = () => next(snapDoc(path, store.get(path))); listeners.add(l); setTimeout(l, 5); return () => listeners.delete(l); }
     };
   }
   function query(colPath, filters, order, lim) {
@@ -67,8 +67,8 @@
       where: (f, op, v) => query(colPath, filters.concat([[f, op, v]]), order, lim),
       orderBy: (f, dir) => query(colPath, filters, [f, dir || 'asc'], lim),
       limit: n => query(colPath, filters, order, n),
-      get: () => Promise.resolve({ docs: docsNow() }),
-      onSnapshot(a, b, c) { const next = typeof a === 'function' ? a : b; const l = () => next({ docs: docsNow(), metadata: { fromCache: false, hasPendingWrites: false } }); listeners.add(l); setTimeout(l, 5); return () => listeners.delete(l); }
+      get: () => { if (rules && rules.list) { let ok = false; try { ok = rules.list(colPath, currentUser, store); } catch (e) { ok = false; } if (!ok) { window.__fake.denials = (window.__fake.denials || []).concat([['list ' + colPath]]); return denied(); } } return Promise.resolve({ docs: docsNow() }); },
+      onSnapshot(a, b, c) { const next = typeof a === 'function' ? a : b; const onErr = typeof a === 'function' ? b : c; if (rules && rules.list) { let ok = false; try { ok = rules.list(colPath, currentUser, store); } catch (e) { ok = false; } if (!ok) { window.__fake.denials = (window.__fake.denials || []).concat([['query ' + colPath]]); setTimeout(() => onErr && onErr(Object.assign(new Error('Missing or insufficient permissions.'), { code: 'permission-denied' })), 5); return () => {}; } } const l = () => next({ docs: docsNow(), metadata: { fromCache: false, hasPendingWrites: false } }); listeners.add(l); setTimeout(l, 5); return () => listeners.delete(l); }
     };
   }
   function colRef(path) { const q = query(path, []); return Object.assign(q, { path, doc: id => docRef(path + '/' + (id || ('auto' + (++autoId) + Math.random().toString(36).slice(2, 7)))) }); }

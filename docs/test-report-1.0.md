@@ -1,4 +1,4 @@
-# Test report · Version 1.0 (build v19) · 6 November 2026
+# Test report · Version 1.0 (build v19 → v20) · 6–7 November 2026
 
 All automated suites run in Chromium (Playwright) against the built page, with an in-memory stand-in for
 Firebase (Firestore + Auth) that reproduces server timestamps, batches, live snapshots and pending writes.
@@ -25,6 +25,27 @@ Firebase (Firestore + Auth) that reproduces server timestamps, batches, live sna
 | run16 (build v20) | registration flow with the security rules enforced: email sign-up (validation, taken name, email in use, no profile-step flash, join right after), Google sign-up with the profile step, log in, wrong password, reset email, names with İ, "Create an account" link, the published build reproducing the sign-up bug | 71 |
 
 **Result: 383 checks, 0 failures (1.0); 71 more in build v20, 0 failures.**
+
+## Second full run before going live (7 November, build v20)
+
+Every suite was run again against build v20, this time **with the security rules enforced** by a JavaScript port of
+`firestore.rules` inside the stand-in (reads, queries, listeners and every write, including `getAfter` semantics for
+batches). Each suite ran twice: with the new rules (as sent on 7 November) and with the rules published before that.
+
+| Run | Checks | Result |
+|---|---|---|
+| run2, run4–run13 and run15 with the **new rules** enforced | 349 | 0 failures, **0 refused reads or writes** in any flow |
+| run2, run5, run7, run8, run10, run11, run13, run15 with the **previously published rules** | 264 | 0 failures (run5 stops after its first two checks because under the old rules a taken name is caught after the account exists, by design) |
+| run3 (algorithm), run14 (guide), explore | 34 | 0 failures |
+| run16 (registration flow, both rule sets, both ways of lowercasing İ) | 71 | 0 failures; the v19 build reproduces the sign-up bug |
+| evalroster | generator vs brute-force optimum | 25/25 optimum, groups recovered 82/82, stable |
+
+Also checked by hand: the deployed `index.html` is identical to `demo/index.html` apart from the Firebase config
+(project `volleyball-5fd70`), `version.txt` is `v20` in both copies, all 22 guide screenshots exist, every `data-act`
+in the markup has a handler, no syntax newer than 2019 is used (works on iOS 12+; flex `gap` only affects spacing on
+iOS below 14.5), and the page is 215 KB.
+
+**Result: 718 checks, 0 failures. No bugs found in this run.**
 
 ## Bugs found and fixed during this test
 1. **Attendance table collapsed for organizers** (1.0 → fixed in build v17): the new "Late leave" column used a CSS class that collided with the organizer panel's class and stacked the table into one column.

@@ -26,6 +26,11 @@
     if (col === 'ratings' || col === 'contacts' || col === 'log') return isAdmin(u, store);
     return false;
   }
+  function list(col, u, store) {
+    if (col === 'config' || col === 'sessions' || col === 'signups') return true;
+    if (col === 'names' || col === 'players' || col === 'ratings' || col === 'contacts' || col === 'log') return isAdmin(u, store);
+    return false;
+  }
   function writeOne(op, u, before, after) {
     const [col, id] = op.path.split('/'); const cur = before.get(op.path); const next = after.get(op.path); const data = op.data || {};
     const keys = Object.keys(data); const hasOnly = allowed => keys.every(k => allowed.includes(k));
@@ -83,5 +88,5 @@
     }
     return false;
   }
-  F.setRules({ get, write: (ops, u, before, after) => ops.every(op => { try { return writeOne(op, u, before, after); } catch (e) { return false; } }) });
+  F.setRules({ get, list, write: (ops, u, before, after) => ops.every(op => { try { return writeOne(op, u, before, after); } catch (e) { return false; } }) });
 })();

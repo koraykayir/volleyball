@@ -5,7 +5,7 @@
 const { chromium } = require('/opt/npm-tools/node_modules/playwright');
 const fs = require('fs'); const path = require('path');
 const SRC = '/home/claude/fbwork/v12/index.html';
-const OLD = '/home/claude/volleyball/demo/index.html'; // build v19, as published
+const OLD = path.join(__dirname, 'v19-demo.html'); // build v19 as published (git show 9eb0e8a^:demo/index.html)
 const FAKE = fs.readFileSync(path.join(__dirname, 'fakefirebase.js'), 'utf8');
 const RULES = fs.readFileSync(path.join(__dirname, 'fakerules.js'), 'utf8');
 let fails = 0; const check = (n, c, x) => { if (c) console.log('ok   ' + n); else { fails++; console.log('FAIL ' + n + (x !== undefined ? ' :: ' + JSON.stringify(x) : '')); } };
