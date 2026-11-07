@@ -429,8 +429,9 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v22'; // build tag for the self-update check
+const APP_VERSION = 'v23'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
+const APP_SHOWN = APP_LABEL + ' (' + APP_VERSION + ')'; // in the status bar, so a new build is recognisable at a glance
 // Key of a name claim (names/{key}), stored in the profile as nameKey: lowercase and accent-insensitive, so
 // "Doğa Çalışkan", "Doga Caliskan" and "DOĞA ÇALIŞKAN" are one name. Computed here only; the rules engine does not
 // lowercase non-ASCII letters, so firestore.rules checks the key strictly for plain-ASCII names and otherwise
@@ -1287,13 +1288,13 @@ function deleteAccountHTML(pw) {
 }
 function statusText() {
   const d = S.data;
-  if (d.mode === 'local') return 'Demo mode · data stays on this device · ' + APP_LABEL;
+  if (d.mode === 'local') return 'Demo mode · data stays on this device · ' + APP_SHOWN;
   if (d.status === 'error') return d.error || 'Something went wrong with Firebase.';
   if (d.authError) return d.authError;
   if (d.status === 'connecting') return 'Connecting…';
   const last = S.lastChangeAt ? ' · last change ' + ago(Date.now() - S.lastChangeAt) : '';
-  if (d.status === 'offline' || !S.online) return 'Offline · showing the last data · ' + APP_LABEL + last;
-  return 'Live · ' + APP_LABEL + last;
+  if (d.status === 'offline' || !S.online) return 'Offline · showing the last data · ' + APP_SHOWN + last;
+  return 'Live · ' + APP_SHOWN + last;
 }
 function paintStatus() { const el = $('#statusText'); if (el) el.textContent = statusText(); }
 function statusHTML(vm) {
