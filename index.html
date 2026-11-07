@@ -224,6 +224,8 @@ details.help{font-size:14px}
 .status.bad{color:var(--bad)}
 .orghead .orgwho{flex:1 1 100%; overflow-wrap:anywhere; margin-top:-4px}
 .status .acct{overflow-wrap:anywhere; text-align:right}
+.status .authlinks{display:inline-flex; align-items:center; gap:8px; white-space:nowrap; margin-left:auto}
+.status .authlinks .sep{color:var(--muted); opacity:.6}
 .authcard h3{font:700 26px/1.1 var(--display)}
 .levels{display:grid; grid-template-columns:repeat(5,1fr); gap:6px}
 @media (max-width:480px){.levels{grid-template-columns:1fr}}
@@ -427,16 +429,18 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v19'; // build tag for the self-update check
+const APP_VERSION = 'v20'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
-const nameKey = n => normName(n).toLowerCase();
+// Key of a name claim (names/{key}). Must match nameKeyOf() in firestore.rules: the Turkish capital İ is folded to
+// a plain i first, because JavaScript lowercases it to "i̇" (two code points) while the rules engine may not.
+const nameKey = n => normName(n).replace(/İ/g, 'i').toLowerCase();
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
   if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'This sign-in method is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
   if (/unauthorized-domain/.test(c)) return 'This website may not sign in yet. Add it in Firebase → Authentication → Settings → Authorized domains.';
   if (/popup-closed|cancelled-popup/.test(c)) return 'Sign-in was cancelled.';
   if (/vb\/not-logged-in/.test(c)) return 'Please log in first.';
-  if (/permission-denied/.test(c)) return where === 'join' ? 'The list did not accept this. Sign-ups may be closed or not open yet.' : where === 'read' ? 'Firebase refused to show the data. Check that the security rules are published.' : 'Firebase refused this change. Are you signed in as an organizer?';
+  if (/permission-denied/.test(c)) return where === 'join' ? 'The list did not accept this. Sign-ups may be closed or not open yet.' : where === 'read' ? 'Firebase refused to show the data. Check that the security rules are published.' : where === 'auth' ? 'Firebase refused this. The security rules may be out of date; tell the organizer.' : 'Firebase refused this change. Are you signed in as an organizer?';
   if (/not-found|failed-precondition/.test(c) && /database/i.test(m)) return 'The Firestore database does not exist yet. Create it in Firebase → Firestore Database.';
   if (/unavailable|network-request-failed/.test(c)) return 'No connection to Firebase right now. Try again in a moment.';
   return m;
@@ -612,15 +616,24 @@ function firebaseBackend(conf) {
     // ---- accounts
     signInGoogle() { return google(); },
     async signInEmail(email, password) { await auth.signInWithEmailAndPassword(email, password); },
-    async isNameTaken(name) {
-      const sn = await fs.collection('names').doc(nameKey(name)).get(); const u = auth.currentUser;
+    // `soft`: a logged-out visitor may not be allowed to read the claim (older rules); then the answer is
+    // "not known" and the create-only claim in createProfile() decides.
+    async isNameTaken(name, soft) {
+      let sn;
+      try { sn = await fs.collection('names').doc(nameKey(name)).get(); }
+      catch (e) { if (soft && /permission-denied/.test(String(e && e.code))) return false; throw e; }
+      const u = auth.currentUser;
       return sn.exists && !(u && (sn.data() || {}).uid === u.uid);
     },
     async register({ email, password, name, level }) {
-      if (await this.isNameTaken(name)) throw nameTaken();
-      const r = await auth.createUserWithEmailAndPassword(email, password);
-      try { await r.user.updateProfile({ displayName: name }); } catch (e) {}
-      await createProfile(r.user, name, level);
+      if (await this.isNameTaken(name, true)) throw nameTaken();
+      d.registering = true; emit(); // the profile step stays hidden while the account and profile are being created
+      try {
+        const r = await auth.createUserWithEmailAndPassword(email, password);
+        try { await r.user.updateProfile({ displayName: name }); } catch (e) {}
+        if (await this.isNameTaken(name)) throw nameTaken(); // signed in now, so the claim can be read for sure
+        await createProfile(r.user, name, level);
+      } finally { d.registering = false; emit(); }
     },
     async saveProfile({ name, level }) {
       const u = me(); if (d.profile) return;
@@ -1139,7 +1152,7 @@ function bandHTML(vm) {
 }
 const LEVELS = [[1, 'Beginner', 'Learning the basics'], [2, 'Casual', 'Can keep a rally going'], [3, 'Intermediate', 'Solid pass, set and serve'], [4, 'Advanced', 'Attacks and plays positions'], [5, 'Strong', 'Club level']];
 function loggedIn() { return !!S.data.user; }
-function needsProfile() { const d = S.data; return !!(d.user && d.profileLoaded && !d.profile && !(d.mode === 'local' && d.user.uid === 'demo-organizer')); }
+function needsProfile() { const d = S.data; return !!(d.user && d.profileLoaded && !d.profile && !d.registering && !(d.mode === 'local' && d.user.uid === 'demo-organizer')); }
 function levelPickerHTML(sel) {
   return '<div class="levels" role="radiogroup" aria-label="Your level">' + LEVELS.map(([v, t, s]) => '<button type="button" role="radio" aria-checked="' + (sel === v) + '" class="lvl' + (sel === v ? ' sel' : '') + '" data-act="pick-level" data-n="' + v + '"><b>' + v + '</b><span>' + t + '</span><small>' + s + '</small></button>').join('') + '</div>';
 }
@@ -1180,7 +1193,7 @@ function profileHTML() {
 }
 function accountHTML() {
   const d = S.data; const u = d.user;
-  if (!u) return '<button type="button" class="link" data-act="auth-open">Log in</button>';
+  if (!u) return '<span class="authlinks"><button type="button" class="link" data-act="auth-open">Log in</button><span class="sep" aria-hidden="true">·</span><button type="button" class="link" data-act="auth-open" data-mode="register">Create an account</button></span>';
   const name = (d.profile && d.profile.name) || u.displayName || u.email;
   return '<span class="small muted acct"><button type="button" class="link" data-act="account-open" title="Your account">' + esc(name) + '</button>' + (u.isAdmin ? ' · organizer' : '') + '</span><button type="button" class="link" data-act="logout">Log out</button>';
 }
@@ -1775,6 +1788,7 @@ const actions = {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ui.authErr = 'That email doesn\'t look right.'; render(); return; }
     if ((ui.auPass || '').length < 6) { ui.authErr = 'Use a password with at least 6 characters.'; render(); return; }
     if (!ui.auLevel) { ui.authErr = 'Pick your level.'; render(); return; }
+    ui.pfName = name; ui.pfLevel = ui.auLevel; // if the account is created but the name turns out to be taken, the profile step continues with these
     await authRun(() => B.register({ email, password: ui.auPass, name, level: ui.auLevel }));
   },
   'auth-reset': async () => {
@@ -1834,7 +1848,7 @@ const actions = {
     catch (e) { ui.acErr = /invalid-credential|wrong-password|invalid-login/.test(String(e && e.code)) ? 'The current password is wrong.' : authText(e); }
     ui.acBusy = false; render();
   },
-  'logout': async () => { const ui = U(); ui.accountOpen = false; ui.acDelete = false; S.mySignups = null; S.leftAll = null; if (ui.logOpen) { ui.logOpen = false; B.unwatchLog(); } ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null, rc: null }; await run(() => B.signOut(), 'auth'); render(); },
+  'logout': async () => { const ui = U(); ui.accountOpen = false; ui.acDelete = false; ui.pfName = null; ui.pfLevel = 0; ui.authErr = ''; S.mySignups = null; S.leftAll = null; if (ui.logOpen) { ui.logOpen = false; B.unwatchLog(); } ui.orgOpen = false; ui.setupOpen = false; ui.leaveConfirm = false; ui.roster = { mode: 'closed', sel: null, id: null, rc: null }; await run(() => B.signOut(), 'auth'); render(); },
   'cal-ics': async () => { const ev = S.vm.event; if (!ev) return; await saveFile('volleyball-' + (ev.date || 'session') + '.ics', icsText(ev), 'text/calendar'); },
   'leave-ask': () => { U().leaveConfirm = true; render(); },
   'leave-no': () => { U().leaveConfirm = false; render(); },
