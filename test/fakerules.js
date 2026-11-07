@@ -38,29 +38,29 @@
     if (col === 'names' || col === 'players' || col === 'ratings' || col === 'contacts' || col === 'log') return isAdmin(u, store);
     return false;
   }
-  function writeOne(op, u, before, after) {
-    const [col, id] = op.path.split('/'); const cur = before.get(op.path); const next = after.get(op.path); const data = op.data || {};
+  function writeOne(op, u, before, after, raw) {
+    const [col, id] = op.path.split('/'); const cur = (raw ? raw.before : before).get(op.path); const next = (raw ? raw.after : after).get(op.path); const data = op.data || {}; // resource / request.resource: not access calls
     const keys = Object.keys(data); const hasOnly = allowed => keys.every(k => allowed.includes(k));
-    const admin = isAdmin(u, before);
+    const adminQ = () => isAdmin(u, before); // exists(admins/...) — counted only where the real rule evaluates isAdmin()
     const profileAfter = () => { const p = after.get('players/' + u.uid); if (!p) throw new Error('no profile after'); return p; };
     const changed = () => (cur && next) ? Object.keys(next).filter(k => !same(next[k], cur[k])).concat(Object.keys(cur).filter(k => !(k in next))) : [];
     if (col === 'admins') return false;
-    if (col === 'config' || col === 'sessions' || col === 'ratings' || col === 'contacts') return admin;
+    if (col === 'config' || col === 'sessions' || col === 'ratings' || col === 'contacts') return adminQ();
     if (col === 'clock') return signedIn(u) && u.uid === id && hasOnly(['t']) && F.isServerTs(data.t);
-    const profileKey = () => { const p = profileAfter(); return 'nameKey' in p ? p.nameKey : lower(p.name); }; // v21: profileAfter(uid).get('nameKey', name.lower())
+    const profileKey = () => { const p = profileAfter(); return 'nameKey' in p ? p.nameKey : lower(profileAfter().name); }; // v21: profileAfter(uid).get('nameKey', profileAfter(uid).name.lower()) — two getAfter() calls, like the real rule
     if (col === 'names') {
-      if (op.type === 'delete') return admin || (signedIn(u) && !!cur && cur.uid === u.uid && (!after.has('players/' + u.uid) || (V === 'v21' ? profileKey() : nameKeyOf(profileAfter().name)) !== id));
+      if (op.type === 'delete') return adminQ() || (signedIn(u) && !!cur && cur.uid === u.uid && (!after.has('players/' + u.uid) || (V === 'v21' ? profileKey() : nameKeyOf(profileAfter().name)) !== id));
       if (cur !== undefined) return false;
       if (V === 'v21') return signedIn(u) && hasOnly(['uid', 'name']) && data.uid === u.uid && validName(data.name) && data.name === profileAfter().name && id === profileKey() && keyFits(id, data.name);
       return signedIn(u) && hasOnly(['uid', 'name']) && data.uid === u.uid && validName(data.name) && id === nameKeyOf(data.name) && nameKeyOf(profileAfter().name) === id;
     }
     if (col === 'players') {
-      if (op.type === 'delete') return admin || (signedIn(u) && u.uid === id);
+      if (op.type === 'delete') return adminQ() || (signedIn(u) && u.uid === id);
       if (cur === undefined) return signedIn(u) && u.uid === id && hasOnly(V === 'v21' ? ['name', 'level', 'email', 'createdAt', 'nameKey'] : ['name', 'level', 'email', 'createdAt']) && validName(data.name)
         && Number.isInteger(data.level) && data.level >= 1 && data.level <= 5 && data.email === (u.email || '') && F.isServerTs(data.createdAt)
         && (V !== 'v21' || !('nameKey' in data) || keyFits(data.nameKey, data.name));
       const ch = changed();
-      if (admin && ch.every(k => ['level', 'name'].includes(k)) && Number.isInteger(next.level) && next.level >= 1 && next.level <= 5 && validName(next.name)) return true;
+      if (adminQ() && ch.every(k => ['level', 'name'].includes(k)) && Number.isInteger(next.level) && next.level >= 1 && next.level <= 5 && validName(next.name)) return true;
       if (V === 'v21') {
         if (signedIn(u) && u.uid === id && ch.every(k => ['name', 'nameKey'].includes(k)) && validName(next.name) && (!('nameKey' in next) || keyFits(next.nameKey, next.name))) { const claim = after.get('names/' + profileKey()); if (!claim) throw new Error('no claim after'); return claim.uid === id; }
         return false;
@@ -69,13 +69,13 @@
       return false;
     }
     if (col === 'signups') {
-      if (op.type === 'delete') return admin;
-      if (cur === undefined) return admin || (signedIn(u) && id === data.sessionId + '_' + u.uid
+      if (op.type === 'delete') return adminQ();
+      if (cur === undefined) return adminQ() || (signedIn(u) && id === data.sessionId + '_' + u.uid
         && hasOnly(['sessionId', 'name', 'uid', 'createdAt', 'status', 'paid', 'noshow', 'guestOf', 'addedBy'])
         && data.uid === u.uid && before.has('players/' + u.uid) && validName(data.name) && data.name === profileAfter().name
         && data.status === 'active' && data.paid === false && data.noshow === false && data.guestOf === '' && data.addedBy === 'self'
         && F.isServerTs(data.createdAt) && sessionOpen(before, data.sessionId));
-      if (admin) return true;
+      if (adminQ()) return true;
       if (!(signedIn(u) && cur.uid === u.uid && cur.addedBy === 'self')) return false;
       const ch = changed(); const only = ks => ch.every(k => ks.includes(k));
       const sessOpen = () => { const s = before.get('sessions/' + cur.sessionId); if (!s) throw new Error('no session'); return s.status === 'open'; };
@@ -98,9 +98,22 @@
         || (['register', 'rename'].includes(e.type) && profileAfter().name === e.name)
         || (e.type === 'account-delete' && !after.has('players/' + u.uid));
       return signedIn(u) && hasOnly(['sessionId', 'at', 'type', 'name', 'uid', 'key', 'detail', 'by', 'byName']) && F.isServerTs(data.at) && data.by === u.uid
-        && (admin || (data.uid === u.uid && selfLogOk(data)));
+        && (adminQ() || (data.uid === u.uid && selfLogOk(data)));
     }
     return false;
   }
-  F.setRules({ get, list, write: (ops, u, before, after) => ops.every(op => { try { return writeOne(op, u, before, after); } catch (e) { return false; } }) });
+  // Document-access accounting, mirroring Firestore's limits: at most 10 get/exists/getAfter calls per operation
+  // and 20 per batched write. Every Map.get/has on the before/after state counts as one call.
+  const stats = F.ruleStats = { maxPerOp: 0, maxPerBatch: 0, worstOp: '', worstBatch: '', overLimit: [] };
+  const counting = (m, c) => ({ get: k => { c.n++; return m.get(k); }, has: k => { c.n++; return m.has(k); } });
+  F.setRules({ get, list, write: (ops, u, before, after) => {
+    let batch = 0; const names = [];
+    const ok = ops.every(op => { const c = { n: 0 }; let r = false; try { r = writeOne(op, u, counting(before, c), counting(after, c), { before, after }); } catch (e) { r = false; }
+      batch += c.n; names.push(op.type + ' ' + op.path + ' (' + c.n + ')');
+      if (c.n > stats.maxPerOp) { stats.maxPerOp = c.n; stats.worstOp = op.type + ' ' + op.path; }
+      if (c.n > 10) { stats.overLimit.push('op ' + op.type + ' ' + op.path + ': ' + c.n); r = false; }
+      return r; });
+    if (batch > stats.maxPerBatch) { stats.maxPerBatch = batch; stats.worstBatch = names.join(', '); }
+    if (ops.length > 1 && batch > 20) { stats.overLimit.push('batch ' + names.join(', ') + ': ' + batch); return false; }
+    return ok; } });
 })();

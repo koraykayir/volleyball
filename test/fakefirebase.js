@@ -18,6 +18,23 @@
       data(opts) { if (data === undefined) return undefined; const o = clone(data); for (const k of Object.keys(o)) if (o[k] && o[k].__pending) o[k] = opts && opts.serverTimestamps === 'none' ? null : new Timestamp(o[k].__pending); return o; } };
   }
   function notify() { listeners.forEach(l => { try { l(); } catch (e) { console.error(e); } }); }
+  // Other pages of the same browser context share the data (like other devices on the real database):
+  // committed writes are broadcast and applied there too.
+  let bc = null; try { bc = new BroadcastChannel('fake-firestore-' + (window.__fakeChannel || 'default')); } catch (e) {}
+  const serialize = ops => JSON.stringify(ops, (k, v) => v === SERVER_TS ? { __sts: true } : v === DELETE ? { __del: true } : v instanceof Timestamp ? { __tsv: v.ms, __ns: v.nanoseconds } : v);
+  const unserialize = txt => JSON.parse(txt, (k, v) => v && typeof v === 'object' ? (v.__sts ? SERVER_TS : v.__del ? DELETE : '__tsv' in v ? new Timestamp(v.__tsv, v.__ns) : v) : v);
+  function applyRemote(ops, now) {
+    ops.forEach(op => {
+      if (op.type === 'delete') { store.delete(op.path); return; }
+      const data = resolveTs(op.data, now); const cur = store.get(op.path);
+      if (op.type === 'update' && cur === undefined) return;
+      const next = op.type === 'set' && !op.merge ? {} : Object.assign({}, cur || {});
+      for (const k of Object.keys(data)) { if (data[k] === DELETE) delete next[k]; else next[k] = data[k]; }
+      store.set(op.path, next);
+    });
+    notify();
+  }
+  if (bc) bc.onmessage = ev => { try { const m = ev.data; applyRemote(unserialize(m.ops), m.now); } catch (e) { console.error('fake sync', e); } };
   function apply(ops) {
     if (failNext) { const e = failNext; failNext = null; return Promise.reject(e); }
     if (rules && rules.write) { let ok = false; try { ok = rules.write(ops, currentUser, store, afterOf(ops)); } catch (e) { ok = false; } if (!ok) { window.__fake.denials = (window.__fake.denials || []).concat([ops.map(o => o.type + ' ' + o.path)]); return denied(); } }
@@ -41,6 +58,7 @@
         for (const k of Object.keys(cur)) fixed[k] = cur[k] && cur[k].__pending ? new Timestamp(now) : cur[k];
         store.set(op.path, fixed); pendingPaths.delete(op.path);
       });
+      if (bc) { try { bc.postMessage({ ops: serialize(ops), now }); } catch (e) {} }
       notify(); res();
     }, latency));
   }

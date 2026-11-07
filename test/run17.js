@@ -121,6 +121,7 @@ const seedWorld = () => {
     await t.page.click('.status [data-act="account-open"]'); await sleep(200); await t.page.click('[data-act="account-delete-ask"]'); await sleep(80); await t.page.fill('#acDelPw', 'secret12'); await t.page.click('[data-act="account-delete-yes"]'); await sleep(500);
     check(`${L} Doğukan deletes his account: profile and claim gone, no refusals`, !(await t.profile('p2')) && !(await t.claims())['dogukan'] && (await t.denials()).length === 0, [await t.claims(), await t.denials()]);
     check(`${L} no page errors`, t.errs.length === 0, t.errs);
+    console.log('RULESTATS ' + JSON.stringify(await t.page.evaluate(() => window.__fake.ruleStats)));
     await t.ctx.close();
   }
 

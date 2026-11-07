@@ -429,7 +429,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v21'; // build tag for the self-update check
+const APP_VERSION = 'v22'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
 // Key of a name claim (names/{key}), stored in the profile as nameKey: lowercase and accent-insensitive, so
 // "Doğa Çalışkan", "Doga Caliskan" and "DOĞA ÇALIŞKAN" are one name. Computed here only; the rules engine does not
@@ -440,6 +440,8 @@ const nameKey = n => normName(n).normalize('NFD').replace(/[\u0300-\u036f]/g, ''
 const legacyNameKey = n => normName(n).toLowerCase();
 // For plain-ASCII names the rules derive the key themselves (name.lower()), so nameKey is stored only for other names.
 const asciiName = n => /^[ -~]*$/.test(n);
+// A usable name has a letter or digit in it, and its key must be a valid document ID (not ".", ".." or "__x__").
+const nameProblem = n => !/[\p{L}\p{N}]/u.test(n) ? 'Enter a name with at least one letter.' : (/^\.{1,2}$/.test(nameKey(n)) || /^__.*__$/.test(nameKey(n)) ? 'That name can\'t be used here. Add a letter.' : '');
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
   if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'This sign-in method is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
@@ -608,7 +610,17 @@ function firebaseBackend(conf) {
         : one(b => b.update(fs.collection('signups').doc(k), { status: 'active', leaveDeclinedAt: TS() }), Object.assign({}, e, { type: 'leave-declined' }));
     },
     updateSignup(k, patch, e) { return e ? one(b => b.update(fs.collection('signups').doc(k), patch), e) : fs.collection('signups').doc(k).update(patch); },
-    async updateSignups(keys, patch, logs) { const b = fs.batch(); keys.forEach(k => b.update(fs.collection('signups').doc(k), patch)); (logs || []).forEach(e => addLog(b, e)); await b.commit(); },
+    // Bulk changes (all paid, confirm claims, no-shows) go out in batches of at most 10 operations: Firestore
+    // allows at most 20 rule document reads per batched write, and every operation here costs one (the organizer check).
+    async updateSignups(keys, patch, logs) {
+      const ls = logs || []; const STEP = 5;
+      for (let i = 0; i < Math.max(keys.length, ls.length); i += STEP) {
+        const b = fs.batch();
+        keys.slice(i, i + STEP).forEach(k => b.update(fs.collection('signups').doc(k), patch));
+        ls.slice(i, i + STEP).forEach(e => addLog(b, e));
+        await b.commit();
+      }
+    },
     async createSession({ id, fields, prev }, e) {
       const b = fs.batch();
       b.set(fs.collection('sessions').doc(id), Object.assign(withTs(fields), { status: 'open', playedAt: null, roster: null, summary: null, createdAt: TS() }));
@@ -1688,7 +1700,7 @@ function logRows() {
 }
 function logCSV(rows) {
   const sessionOf = id => (S.data.sessions || []).find(s => s.id === id);
-  const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const cell = v => { let t = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; }; // the apostrophe stops spreadsheets from running a cell as a formula
   const lines = [['Time', 'Session', 'What happened', 'Type', 'Person', 'By', 'Detail'].map(cell).join(',')];
   rows.forEach(e => { const s = sessionOf(e.sessionId); lines.push([e.at ? new Date(e.at).toISOString() : '', s ? fmtEventDate(s) + (s.time ? ' ' + s.time : '') : (e.sessionId || ''), logLine(e, true), e.type, e.name || '', e.byName || '', e.detail || ''].map(cell).join(',')); });
   return lines.join('\r\n') + '\r\n';
@@ -1808,6 +1820,7 @@ const actions = {
   'auth-register': async () => {
     const ui = U(); const name = normName(ui.auName).slice(0, 60); const email = normEmail(ui.auEmail);
     if (!name) { ui.authErr = 'Enter the name to show on the list.'; render(); return; }
+    if (nameProblem(name)) { ui.authErr = nameProblem(name); render(); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ui.authErr = 'That email doesn\'t look right.'; render(); return; }
     if ((ui.auPass || '').length < 6) { ui.authErr = 'Use a password with at least 6 characters.'; render(); return; }
     if (!ui.auLevel) { ui.authErr = 'Pick your level.'; render(); return; }
@@ -1823,6 +1836,7 @@ const actions = {
   'profile-save': async () => {
     const ui = U(); const name = normName(ui.pfName || '').slice(0, 60);
     if (!name) { ui.authErr = 'Enter the name to show on the list.'; render(); return; }
+    if (nameProblem(name)) { ui.authErr = nameProblem(name); render(); return; }
     if (!ui.pfLevel) { ui.authErr = 'Pick your level.'; render(); return; }
     const ok = await authRun(() => B.saveProfile({ name, level: ui.pfLevel }));
     if (ok) { ui.pfName = null; ui.pfLevel = 0; }
@@ -1856,6 +1870,7 @@ const actions = {
     const ui = U(); const name = normName(ui.acName || '').slice(0, 60); const cur = (S.data.profile && S.data.profile.name) || '';
     ui.acErr = ''; ui.acInfo = '';
     if (!name) { ui.acErr = 'Enter a name.'; render(); return; }
+    if (nameProblem(name)) { ui.acErr = nameProblem(name); render(); return; }
     if (name === cur) { ui.acInfo = 'That is already your name.'; render(); return; }
     ui.acBusy = true; render();
     try { await B.rename(name); ui.acInfo = 'Name changed to ' + name + '.'; } catch (e) { ui.acErr = authText(e); }
@@ -1907,7 +1922,8 @@ const actions = {
     const ui = U(); const name = normName(ui.addName).slice(0, 60); const email = normEmail(ui.addEmail);
     if (!name) { toast('Enter a name first.'); return; }
     if (!S.vm.eventId) { toast('Start a session first.'); return; }
-    if (S.vm.attendees.some(p => p.name.toLowerCase() === name.toLowerCase())) { toast(name + ' is already on the list.'); return; }
+    if (nameProblem(name)) { toast(nameProblem(name)); return; }
+    if (S.vm.attendees.some(p => nameKey(p.name) === nameKey(name))) { toast(name + ' is already on the list.'); return; }
     ui.addName = ''; ui.addEmail = ''; const ok = await run(() => B.adminAdd({ sessionId: S.vm.eventId, name, email }).then(() => true), 'org'); if (ok) toast(name + ' added to the list.');
   },
   'ev-update': async () => { if (!S.vm.eventId) return; const f = eventFields(); U().evDirty = false; const diff = sessionDiff(S.vm.event, f); await run(() => B.updateSession(S.vm.eventId, f, { type: 'session-update', sessionId: S.vm.eventId, detail: diff || 'no visible change' }), 'org'); toast('Session updated'); },
@@ -2076,7 +2092,7 @@ function handleInput(el) {
   if (/^ac/.test(k)) { ui.acErr = ''; ui.acInfo = ''; }
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, suggestCourts, courtsLabel, capacityOf, benchCapOf, announceText, listText, myRecord, lateLeaves, icsText, attendanceStats, makePDF, rosterHTML, fbExplain, logCSV, logRows, logLine, get B() { return B; } };
+window.__vb = { S, actions, render, buildVM, summaryOf, rosterText, generateTeams, suggestCourts, courtsLabel, capacityOf, benchCapOf, announceText, listText, myRecord, lateLeaves, icsText, toLatin1, nameKey, attendanceStats, makePDF, rosterHTML, fbExplain, logCSV, logRows, logLine, get B() { return B; } };
 })();
 </script>
 

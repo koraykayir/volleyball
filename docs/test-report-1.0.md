@@ -1,4 +1,4 @@
-# Test report · Version 1.0 (builds v19 → v21) · 6–7 November 2026
+# Test report · Version 1.0 (builds v19 → v22) · 6–7 November 2026
 
 All automated suites run in Chromium (Playwright) against the built page, with an in-memory stand-in for
 Firebase (Firestore + Auth) that reproduces server timestamps, batches, live snapshots and pending writes.
@@ -63,6 +63,28 @@ next visit (their own old claim document is replaced in the same write; nothing 
 | run17 | production-like data (profiles without nameKey, claims under the old key, pre-unique-names accounts): Deniz renames to the proper spelling, duplicates with or without accents refused, "Çağla Öztürk" / "Özlem Ş." / "İrem" register, migrations for Doğukan, Gürkan (organizer), Talha Ocakçı, Tunç, Koray, the Jörg/Jorg clash, rename, account deletion; under all three possible lowercasing behaviours of the rules engine; the v20 page with the v21 rules; the v21 page with the old rules | 81 |
 | all rules-enforced suites (run2, run4–run13, run15) with the v21 rules | as above, 0 refused reads or writes | 349 |
 | run16, run3, run14, explore, plain suites | unchanged | 213 |
+
+## Build v22 (7 November, night): the cases the stand-in could not see
+
+Third round, aimed at the gap behind both bugs of the day: behaviour of the real Firebase that the stand-in did not
+model. The stand-in now also enforces Firestore's limit on rule look-ups (10 per operation, 20 per batched write),
+shares its data between pages of one browser context (two devices), and the suites cover edge inputs, the
+self-update check and the narrowest phones.
+
+| Suite | Covers | Checks |
+|---|---|---|
+| run20 | 16-player session: confirm 12 "I've paid" claims, mark all paid, 14 no-shows at "mark as played" | 6 |
+| run18 | edge inputs with the rules enforced: whitespace, slashes, ".", "__x__", emoji, 60-character Turkish names, HTML in names everywhere (list, status bar, account page, log, CSV, copy text), odd emails and passwords, organizer "add to list" duplicates without accents, CSV formula cells, PDF text fallback | 28 |
+| run19 | self-update over HTTP (same, newer, older, garbage version.txt; reload exactly once, no loop); two devices live (join, additions, leave request and approval, rejoin, rename, capacity change); 320 px light and dark, long names/venue/note, no horizontal overflow | 21 |
+| rule look-up accounting | every suite reports the most look-ups per operation and per batch | max 4 per operation, 15 per batch (rename) |
+
+**Result of the round: 677 checks across all suites, 0 failures after the fixes below.**
+
+Found and fixed:
+1. **Bulk organizer actions could exceed Firestore's rule look-up limit** ("Mark all as paid", "Confirm I've-paid claims", no-shows at "Mark as played"): one batch for everyone, one organizer look-up per operation, so with more than 10 people in one go the whole batch could be refused ("Firebase refused this change"). Now written in batches of 5 people. (Whether the real engine would have refused depends on caching it does not promise; the stand-in assumes no caching.)
+2. Names consisting of symbols only, or whose key would be an invalid document ID (".", "..", "__x__"), are refused with a hint instead of a confusing Firebase error.
+3. "Add to list" now treats "Doğukan" and "Dogukan" as the same person, like registration does.
+4. Activity-log CSV: cells starting with = + - @ get a leading apostrophe so spreadsheets don't run them as formulas.
 
 **Order matters for this one: publish the v21 rules first, then deploy the page.** The v20 page works with the v21
 rules; the v21 page with the old rules would refuse new registrations and renames of names with non-ASCII letters
