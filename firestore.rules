@@ -1,6 +1,6 @@
 rules_version = '2';
 // Security rules for the volleyball sign-up page.
-// Paste into Firebase console → Firestore Database → Rules → Publish.
+// Paste into Firebase console > Firestore Database > Rules > Publish.
 // Organizers: add a document to the `admins` collection whose ID is the organizer's Google email (lowercase).
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -17,9 +17,17 @@ service cloud.firestore {
       return s.status == 'open' && (s.get('opensAtTs', null) == null || request.time >= s.opensAtTs);
     }
     function validName(n) { return n is string && n.size() > 0 && n.size() <= 60 && !n.matches('.*/.*'); }
-    // Key of a name claim (names/{key}); must give the same result as nameKey() in the page. The Turkish capital İ is
-    // folded to a plain i before lowercasing, because JavaScript and this engine may lowercase it differently.
-    function nameKeyOf(n) { return n.replace('İ', 'i').lower(); }
+    // The key of a name claim (names/{key}) is computed by the page (nameKey(): lowercase and accent-insensitive,
+    // so a name typed with or without Turkish letters is the same name) and stored in the profile as nameKey.
+    // The rules engine does not lowercase non-ASCII letters (the C with cedilla, O/U with umlaut, dotted I...),
+    // so the key is checked strictly only for plain-ASCII names; for other names it must be lowercase-shaped
+    // and consistent between the profile and the claim.
+    function asciiOnly(s) { return s.matches('[ -~]*'); }
+    function keyFits(key, name) {
+      return key is string && key.size() > 0 && key == key.lower() && (!asciiOnly(name) || key == name.lower());
+    }
+    // Profiles written by earlier builds have no nameKey yet: then the claim key is the lowercased name, as before.
+    function profileKey(uid) { return profileAfter(uid).get('nameKey', profileAfter(uid).name.lower()); }
     // Leaving without an organizer: only in the last 3 hours before the start (or later). The start is
     // stored by the organizer as startsAtTs; without it nobody can leave on their own.
     function leaveIsFree(id) {
@@ -65,12 +73,13 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['uid', 'name'])
         && request.resource.data.uid == request.auth.uid
         && validName(request.resource.data.name)
-        && key == nameKeyOf(request.resource.data.name)
-        && nameKeyOf(profileAfter(request.auth.uid).name) == key;
+        && request.resource.data.name == profileAfter(request.auth.uid).name
+        && key == profileKey(request.auth.uid)
+        && keyFits(key, request.resource.data.name);
       allow update: if false;
       allow delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid
         && (!existsAfter(/databases/$(database)/documents/players/$(request.auth.uid))
-          || nameKeyOf(profileAfter(request.auth.uid).name) != key));
+          || profileKey(request.auth.uid) != key));
     }
 
     // Player profiles: created once by the player with a level of 1 to 5 (together with their name claim).
@@ -78,19 +87,21 @@ service cloud.firestore {
     match /players/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow create: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['name', 'level', 'email', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['name', 'level', 'email', 'createdAt', 'nameKey'])
         && validName(request.resource.data.name)
         && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5
         && request.resource.data.email == email()
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && (!('nameKey' in request.resource.data) || keyFits(request.resource.data.nameKey, request.resource.data.name));
       allow update: if (isAdmin()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['level', 'name'])
           && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5
           && validName(request.resource.data.name))
         || (signedIn() && request.auth.uid == uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'nameKey'])
           && validName(request.resource.data.name)
-          && getAfter(/databases/$(database)/documents/names/$(nameKeyOf(request.resource.data.name))).data.uid == uid);
+          && (!('nameKey' in request.resource.data) || keyFits(request.resource.data.nameKey, request.resource.data.name))
+          && getAfter(/databases/$(database)/documents/names/$(profileKey(uid))).data.uid == uid);
       allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);
     }
 

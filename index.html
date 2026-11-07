@@ -429,11 +429,17 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v20'; // build tag for the self-update check
+const APP_VERSION = 'v21'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
-// Key of a name claim (names/{key}). Must match nameKeyOf() in firestore.rules: the Turkish capital İ is folded to
-// a plain i first, because JavaScript lowercases it to "i̇" (two code points) while the rules engine may not.
-const nameKey = n => normName(n).replace(/İ/g, 'i').toLowerCase();
+// Key of a name claim (names/{key}), stored in the profile as nameKey: lowercase and accent-insensitive, so
+// "Doğa Çalışkan", "Doga Caliskan" and "DOĞA ÇALIŞKAN" are one name. Computed here only; the rules engine does not
+// lowercase non-ASCII letters, so firestore.rules checks the key strictly for plain-ASCII names and otherwise
+// only that it is lowercase-shaped and matches the profile (keyFits / profileKey there).
+const nameKey = n => normName(n).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\u0131/g, 'i').toLowerCase();
+// the key as earlier builds computed it (plain lowercase), to find and replace claims they wrote
+const legacyNameKey = n => normName(n).toLowerCase();
+// For plain-ASCII names the rules derive the key themselves (name.lower()), so nameKey is stored only for other names.
+const asciiName = n => /^[ -~]*$/.test(n);
 function fbExplain(e, where) {
   const c = String((e && e.code) || ''); const m = String((e && e.message) || e || 'error');
   if (/operation-not-allowed|admin-restricted-operation/.test(c)) return 'This sign-in method is switched off. Turn it on in Firebase → Authentication → Sign-in method.';
@@ -522,7 +528,7 @@ function firebaseBackend(conf) {
     d.profileLoaded = false; d.profile = null;
     if (u.email) { try { const s = await fs.collection('admins').doc(u.email).get(); user.isAdmin = !!s.exists; } catch (e) { user.isAdmin = false; } }
     d.user = user; d.authError = ''; adminSubs(); syncClock();
-    unsubProfile = fs.collection('players').doc(u.uid).onSnapshot(s => { d.profile = s.exists ? (s.data() || {}) : null; d.profileLoaded = true; emit(); if (d.profile) claimName(u.uid, d.profile.name); }, () => { d.profileLoaded = true; emit(); });
+    unsubProfile = fs.collection('players').doc(u.uid).onSnapshot(s => { d.profile = s.exists ? (s.data() || {}) : null; d.profileLoaded = true; emit(); if (d.profile) claimName(u.uid, d.profile.name, d.profile); }, () => { d.profileLoaded = true; emit(); });
     emit();
   }
   const me = () => { if (!auth.currentUser || auth.currentUser.isAnonymous) throw Object.assign(new Error('Please log in first.'), { code: 'vb/not-logged-in' }); return auth.currentUser; };
@@ -531,15 +537,29 @@ function firebaseBackend(conf) {
   // same name at the same moment, the second batch is rejected and that person picks another name.
   async function createProfile(u, name, level) {
     const b = fs.batch();
-    b.set(fs.collection('players').doc(u.uid), { name, level, email: u.email || '', createdAt: TS() });
+    b.set(fs.collection('players').doc(u.uid), Object.assign({ name, level, email: u.email || '', createdAt: TS() }, asciiName(name) ? {} : { nameKey: nameKey(name) }));
     b.set(fs.collection('names').doc(nameKey(name)), { uid: u.uid, name });
     addLog(b, { type: 'register', name, uid: u.uid, byName: name, detail: 'level ' + level });
     try { await b.commit(); } catch (e) { if (/permission-denied/.test(String(e && e.code))) throw nameTaken(); throw e; }
   }
-  // Accounts created before names were unique: claim their name once, so nobody else can register it.
-  async function claimName(uid, name) {
-    const flag = 'vb.nameClaimed.' + uid; if (!name || store.get(flag, false)) return;
-    try { const ref = fs.collection('names').doc(nameKey(name)); const sn = await ref.get(); if (!sn.exists) await ref.set({ uid, name }); store.set(flag, true); } catch (e) {}
+  // Once per account and device: make sure the name is claimed under the current key and that the profile
+  // records that key (profiles from earlier builds have none, or a claim under the plain-lowercase key; accounts
+  // from before unique names have no claim at all). Only this account's own old claim is replaced.
+  const claiming = new Set(); // the profile snapshot fires again for our own pending write; run once at a time
+  async function claimName(uid, name, profile) {
+    const flag = 'vb.nameKeyed.' + uid; if (!name || store.get(flag, false) || claiming.has(uid)) return;
+    claiming.add(uid);
+    try {
+      const nk = nameKey(name), lk = legacyNameKey(name); const ref = fs.collection('names').doc(nk);
+      const sn = await ref.get(); const mine = sn.exists && (sn.data() || {}).uid === uid;
+      if (sn.exists && !mine) { store.set(flag, true); return; } // someone else holds this key: nothing to do here
+      const b = fs.batch(); let ops = 0;
+      if (!sn.exists) { b.set(ref, { uid, name }); ops++; }
+      if (lk !== nk) { const old = await fs.collection('names').doc(lk).get(); if (old.exists && (old.data() || {}).uid === uid) { b.delete(old.ref); ops++; } }
+      if (!asciiName(name) && !(profile && profile.nameKey === nk)) { b.update(fs.collection('players').doc(uid), { nameKey: nk }); ops++; }
+      if (ops) await b.commit();
+      store.set(flag, true);
+    } catch (e) {} finally { claiming.delete(uid); }
   }
   async function google(fn) {
     const provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
@@ -646,12 +666,15 @@ function firebaseBackend(conf) {
       const u = me(); const old = (d.profile && d.profile.name) || ''; const nk = nameKey(newName), ok = nameKey(old);
       if (nk !== ok && await this.isNameTaken(newName)) throw nameTaken();
       const b = fs.batch();
-      b.update(fs.collection('players').doc(u.uid), { name: newName });
-      if (nk !== ok) {
-        // free the old claim only if it is really ours (accounts from before unique names may have none)
-        if (ok) { const oc = await fs.collection('names').doc(ok).get(); if (oc.exists && oc.data().uid === u.uid) b.delete(oc.ref); }
-        b.set(fs.collection('names').doc(nk), { uid: u.uid, name: newName });
+      b.update(fs.collection('players').doc(u.uid), asciiName(newName) && !(d.profile && d.profile.nameKey != null) ? { name: newName } : { name: newName, nameKey: nk });
+      // free the old claim(s) if they are really ours: under the current key, or under the plain-lowercase key an
+      // earlier build used (accounts from before unique names may have none at all)
+      for (const k of [...new Set([ok, legacyNameKey(old)])]) {
+        if (!k || k === nk) continue;
+        const oc = await fs.collection('names').doc(k).get(); if (oc.exists && (oc.data() || {}).uid === u.uid) b.delete(oc.ref);
       }
+      if (nk !== ok) b.set(fs.collection('names').doc(nk), { uid: u.uid, name: newName });
+      else if (!(d.profile && d.profile.nameKey === nk)) { const cur = await fs.collection('names').doc(nk).get(); if (!cur.exists) b.set(fs.collection('names').doc(nk), { uid: u.uid, name: newName }); }
       (d.signups || []).filter(x => x.uid === u.uid && x.addedBy === 'self' && (x.status === 'active' || x.status === 'leaving')).forEach(x => b.update(fs.collection('signups').doc(x.id), { name: newName }));
       addLog(b, { type: 'rename', name: newName, uid: u.uid, byName: newName, detail: old });
       try { await b.commit(); } catch (e) { if (/permission-denied/.test(String(e && e.code))) throw nameTaken(); throw e; }
@@ -769,15 +792,15 @@ function localBackend() {
     async register({ email, password, name, level }) {
       if (db.accounts[email]) throw err('auth/email-already-in-use', 'There is already an account with this email.');
       if (db.names[nameKey(name)]) throw err('vb/name-taken', 'name taken');
-      const uid = 'u' + randomHex(10); db.accounts[email] = { uid, email, provider: 'password', name, pw: password }; db.players[uid] = { name, level, email }; db.names[nameKey(name)] = { uid, name }; session = email; addLog({ type: 'register', name, uid, byName: name, detail: 'level ' + level }); emit();
+      const uid = 'u' + randomHex(10); db.accounts[email] = { uid, email, provider: 'password', name, pw: password }; db.players[uid] = { name, level, email, nameKey: nameKey(name) }; db.names[nameKey(name)] = { uid, name }; session = email; addLog({ type: 'register', name, uid, byName: name, detail: 'level ' + level }); emit();
     },
-    async saveProfile({ name, level }) { const uid = curUid(); if (db.players[uid]) return; const n = db.names[nameKey(name)]; if (n && n.uid !== uid) throw err('vb/name-taken', 'name taken'); db.players[uid] = { name, level, email: (db.accounts[session] || {}).email || '' }; db.names[nameKey(name)] = { uid, name }; addLog({ type: 'register', name, uid, byName: name, detail: 'level ' + level }); emit(); },
+    async saveProfile({ name, level }) { const uid = curUid(); if (db.players[uid]) return; const n = db.names[nameKey(name)]; if (n && n.uid !== uid) throw err('vb/name-taken', 'name taken'); db.players[uid] = { name, level, email: (db.accounts[session] || {}).email || '', nameKey: nameKey(name) }; db.names[nameKey(name)] = { uid, name }; addLog({ type: 'register', name, uid, byName: name, detail: 'level ' + level }); emit(); },
     async resetPassword() {},
     async rename(newName) {
       const uid = curUid(); const pl = db.players[uid]; if (!pl) return; const nk = nameKey(newName), ok = nameKey(pl.name);
       const taken = db.names[nk]; if (nk !== ok && taken && taken.uid !== uid) throw err('vb/name-taken', 'name taken');
       if (nk !== ok) { delete db.names[ok]; db.names[nk] = { uid, name: newName }; }
-      const old = pl.name; pl.name = newName; if (db.accounts[session]) db.accounts[session].name = newName;
+      const old = pl.name; pl.name = newName; pl.nameKey = nk; if (db.accounts[session]) db.accounts[session].name = newName;
       Object.values(db.signups).forEach(x => { if (x.uid === uid && x.addedBy === 'self' && (x.status === 'active' || x.status === 'leaving')) x.name = newName; });
       addLog({ type: 'rename', name: newName, uid, byName: newName, detail: old }); emit();
     },

@@ -1,4 +1,4 @@
-# Test report · Version 1.0 (build v19 → v20) · 6–7 November 2026
+# Test report · Version 1.0 (builds v19 → v21) · 6–7 November 2026
 
 All automated suites run in Chromium (Playwright) against the built page, with an in-memory stand-in for
 Firebase (Firestore + Auth) that reproduces server timestamps, batches, live snapshots and pending writes.
@@ -46,6 +46,27 @@ in the markup has a handler, no syntax newer than 2019 is used (works on iOS 12+
 iOS below 14.5), and the page is 215 KB.
 
 **Result: 718 checks, 0 failures. No bugs found in this run.**
+
+## Build v21 (7 November, late evening): names with Turkish letters
+
+Reported by Koray right after going live: "Deniz Doğa Çalışkan" could not register ("name already taken") although
+the name was free; "Deniz Doga Caliskan" worked. Cause: the page lowercases the name to build the claim key
+(Ç → ç), but the rules engine does not lowercase non-ASCII letters, so the key the page wrote never matched the
+key the rule computed and the write was refused. Every name on the live list with Turkish letters had them in
+lowercase only, which is why it had not shown up before. Fix: the page computes the key (lowercase and
+accent-insensitive, so the two spellings above are one name), stores it in the profile for non-ASCII names, and the
+rules verify the key strictly only for plain-ASCII names. Existing claims move to the new key on each player's
+next visit (their own old claim document is replaced in the same write; nothing else is touched).
+
+| Suite | Covers | Checks |
+|---|---|---|
+| run17 | production-like data (profiles without nameKey, claims under the old key, pre-unique-names accounts): Deniz renames to the proper spelling, duplicates with or without accents refused, "Çağla Öztürk" / "Özlem Ş." / "İrem" register, migrations for Doğukan, Gürkan (organizer), Talha Ocakçı, Tunç, Koray, the Jörg/Jorg clash, rename, account deletion; under all three possible lowercasing behaviours of the rules engine; the v20 page with the v21 rules; the v21 page with the old rules | 81 |
+| all rules-enforced suites (run2, run4–run13, run15) with the v21 rules | as above, 0 refused reads or writes | 349 |
+| run16, run3, run14, explore, plain suites | unchanged | 213 |
+
+**Order matters for this one: publish the v21 rules first, then deploy the page.** The v20 page works with the v21
+rules; the v21 page with the old rules would refuse new registrations and renames of names with non-ASCII letters
+(plain-ASCII names keep working either way).
 
 ## Bugs found and fixed during this test
 1. **Attendance table collapsed for organizers** (1.0 → fixed in build v17): the new "Late leave" column used a CSS class that collided with the organizer panel's class and stacked the table into one column.

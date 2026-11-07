@@ -1,13 +1,20 @@
 // JavaScript port of firestore.rules for the in-memory stand-in (fakefirebase.js), so tests run with the
 // permission checks the real database applies. Options (set before this script runs):
-//   window.__rulesLegacy = true   → the rules as published before build v20 (names: get needs a login, key == name.lower())
-//   window.__rulesLower = 'simple' → the engine lowercases İ (U+0130) to a plain i; 'full' (default) → to "i̇" like JavaScript
+//   window.__rulesVersion = 'v19' | 'v20' | 'v21' (default): which generation of the rules to apply
+//     v19 = published before 7 Nov (names: get needs a login, key == name.lower())
+//     v20 = sent 7 Nov evening (public get, key == name.replace('İ','i').lower())
+//     v21 = current (page-computed key stored as players.nameKey; strict check for ASCII names only)
+//   window.__rulesLower = 'ascii' (default; what the real engine evidently does: only A-Z are lowercased)
+//                       | 'full' (like JavaScript) | 'simple' (full, but İ -> i)
 (function () {
   const F = window.__fake;
-  const lowerMode = window.__rulesLower || 'full';
-  const lower = s => lowerMode === 'simple' ? String(s).replace(/İ/g, 'i').toLowerCase() : String(s).toLowerCase();
-  const legacy = !!window.__rulesLegacy;
-  const nameKeyOf = n => legacy ? lower(n) : lower(String(n).replace(/İ/g, 'i'));
+  const lowerMode = window.__rulesLower || 'ascii';
+  const lower = s => lowerMode === 'ascii' ? String(s).replace(/[A-Z]/g, c => c.toLowerCase()) : lowerMode === 'simple' ? String(s).replace(/\u0130/g, 'i').toLowerCase() : String(s).toLowerCase();
+  const V = window.__rulesVersion || (window.__rulesLegacy ? 'v19' : 'v21');
+  const legacy = V === 'v19';
+  const nameKeyOf = n => legacy ? lower(n) : lower(String(n).replace(/\u0130/g, 'i')); // v19 / v20 server-side key
+  const asciiOnly = s => /^[ -~]*$/.test(String(s));
+  const keyFits = (key, name) => typeof key === 'string' && key.length > 0 && key === lower(key) && (!asciiOnly(name) || key === lower(name));
   const now = () => (window.__serverNow || Date.now)();
   const ms = v => v && v.__pending ? v.__pending : (v && typeof v.toMillis === 'function' ? v.toMillis() : (v == null ? null : v));
   const signedIn = u => !!u && !u.isAnonymous;
@@ -21,7 +28,7 @@
     if (col === 'admins') return signedIn(u) && u.email === id;
     if (col === 'config' || col === 'sessions' || col === 'signups') return true;
     if (col === 'clock') return signedIn(u) && u.uid === id;
-    if (col === 'names') return legacy ? signedIn(u) : true;
+    if (col === 'names') return V === 'v19' ? signedIn(u) : true;
     if (col === 'players') return isAdmin(u, store) || (signedIn(u) && u.uid === id);
     if (col === 'ratings' || col === 'contacts' || col === 'log') return isAdmin(u, store);
     return false;
@@ -40,17 +47,24 @@
     if (col === 'admins') return false;
     if (col === 'config' || col === 'sessions' || col === 'ratings' || col === 'contacts') return admin;
     if (col === 'clock') return signedIn(u) && u.uid === id && hasOnly(['t']) && F.isServerTs(data.t);
+    const profileKey = () => { const p = profileAfter(); return 'nameKey' in p ? p.nameKey : lower(p.name); }; // v21: profileAfter(uid).get('nameKey', name.lower())
     if (col === 'names') {
-      if (op.type === 'delete') return admin || (signedIn(u) && !!cur && cur.uid === u.uid && (!after.has('players/' + u.uid) || nameKeyOf(profileAfter().name) !== id));
+      if (op.type === 'delete') return admin || (signedIn(u) && !!cur && cur.uid === u.uid && (!after.has('players/' + u.uid) || (V === 'v21' ? profileKey() : nameKeyOf(profileAfter().name)) !== id));
       if (cur !== undefined) return false;
+      if (V === 'v21') return signedIn(u) && hasOnly(['uid', 'name']) && data.uid === u.uid && validName(data.name) && data.name === profileAfter().name && id === profileKey() && keyFits(id, data.name);
       return signedIn(u) && hasOnly(['uid', 'name']) && data.uid === u.uid && validName(data.name) && id === nameKeyOf(data.name) && nameKeyOf(profileAfter().name) === id;
     }
     if (col === 'players') {
       if (op.type === 'delete') return admin || (signedIn(u) && u.uid === id);
-      if (cur === undefined) return signedIn(u) && u.uid === id && hasOnly(['name', 'level', 'email', 'createdAt']) && validName(data.name)
-        && Number.isInteger(data.level) && data.level >= 1 && data.level <= 5 && data.email === (u.email || '') && F.isServerTs(data.createdAt);
+      if (cur === undefined) return signedIn(u) && u.uid === id && hasOnly(V === 'v21' ? ['name', 'level', 'email', 'createdAt', 'nameKey'] : ['name', 'level', 'email', 'createdAt']) && validName(data.name)
+        && Number.isInteger(data.level) && data.level >= 1 && data.level <= 5 && data.email === (u.email || '') && F.isServerTs(data.createdAt)
+        && (V !== 'v21' || !('nameKey' in data) || keyFits(data.nameKey, data.name));
       const ch = changed();
       if (admin && ch.every(k => ['level', 'name'].includes(k)) && Number.isInteger(next.level) && next.level >= 1 && next.level <= 5 && validName(next.name)) return true;
+      if (V === 'v21') {
+        if (signedIn(u) && u.uid === id && ch.every(k => ['name', 'nameKey'].includes(k)) && validName(next.name) && (!('nameKey' in next) || keyFits(next.nameKey, next.name))) { const claim = after.get('names/' + profileKey()); if (!claim) throw new Error('no claim after'); return claim.uid === id; }
+        return false;
+      }
       if (signedIn(u) && u.uid === id && ch.every(k => k === 'name') && validName(next.name)) { const claim = after.get('names/' + nameKeyOf(next.name)); if (!claim) throw new Error('no claim after'); return claim.uid === id; }
       return false;
     }

@@ -106,6 +106,7 @@
     failNext(code) { failNext = Object.assign(new Error(code), { code }); },
     setGoogleEmail(e, n) { nextGoogleEmail = e; if (n) nextGoogleName = n; }, disable(k, v) { disabled[k] = v; }, setLatency(ms) { latency = ms; },
     setRules(r) { rules = r; }, isServerTs: v => v === SERVER_TS, isDelete: v => v === DELETE, get user() { return currentUser; },
+    seedAccount(email, a) { accounts[email] = Object.assign({ uid: 'x' + (++uidSeq), provider: 'google.com' }, a); },
     dump() { const o = {}; store.forEach((v, k) => { o[k] = clone(v); }); return o; }
   };
 })();
