@@ -1,4 +1,4 @@
-# Test report · Version 1.0 (builds v19 → v25) · 6–8 November 2026
+# Test report · Version 1.0 (builds v19 → v26) · 6–8 November 2026
 
 All automated suites run in Chromium (Playwright) against the built page, with an in-memory stand-in for
 Firebase (Firestore + Auth) that reproduces server timestamps, batches, live snapshots and pending writes.
@@ -106,6 +106,10 @@ typing, a hint and a disabled save button for invalid values, ISO input tolerate
 | run22 | organizer deletes the current session (open and played): confirm step with the number of sign-ups, cancel, sign-ups removed in batches within the rule look-up limit, config cleared, history untouched, log line, "No session scheduled yet", a new session afterwards; players never see the button | 15 |
 | run23 | Google Maps link: pin to search the place, validation (https:// or coordinates), stored on the session, "Map ↗" in the band, 🗺️ and ⏰ lines in the announcement (opening time ahead and past), calendar entries, log diff, next week's session keeps it, map snippet under the band centred on coordinates from a pasted link / typed coordinates / the place name, no snippet on the account, log and sign-up views | 23 |
 | all suites after v25 | 27 suites | 826 checks, 0 failures |
+
+## Build v26 (8 November): sticky "Back to the list"
+
+A sticky back bar on the activity log, account and sign-up views (and "Back to the page" on the guide). Deployed during an open session with a running countdown: the opening-time, clock and full-week suites were run first; the self-update check runs only on page load, so open pages are not reloaded mid-session. 25 suites, 742 checks, 0 failures.
 
 **Order matters for this one: publish the v21 rules first, then deploy the page.** The v20 page works with the v21
 rules; the v21 page with the old rules would refuse new registrations and renames of names with non-ASCII letters

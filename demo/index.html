@@ -82,6 +82,8 @@ a{color:var(--court)}
 .bar i{display:block; height:100%; background:var(--court-ink); border-radius:3px}
 .wrap{max-width:620px; margin:0 auto; padding-block:14px 56px; padding-left:max(16px,env(safe-area-inset-left,0px)); padding-right:max(16px,env(safe-area-inset-right,0px)); display:flex; flex-direction:column; gap:22px}
 .status{display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--muted); flex-wrap:wrap}
+.backbar{position:sticky; top:0; z-index:6; margin:-8px calc(-1 * max(16px,env(safe-area-inset-right,0px))) -12px calc(-1 * max(16px,env(safe-area-inset-left,0px))); padding:8px max(16px,env(safe-area-inset-right,0px)) 8px max(16px,env(safe-area-inset-left,0px)); background:var(--bg); border-bottom:1px solid var(--line); font-size:14px}
+.backbar .link{font-weight:600}
 .status .sp{flex:1 1 auto}
 .sec{font:600 12.5px/1 var(--body); letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin:0 0 8px; display:flex; align-items:center; gap:8px}
 .sec .cnt{font-weight:500; letter-spacing:0; text-transform:none; color:var(--muted)}
@@ -499,7 +501,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v25'; // build tag for the self-update check
+const APP_VERSION = 'v26'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
 const APP_SHOWN = APP_LABEL + ' (' + APP_VERSION + ')'; // in the status bar, so a new build is recognisable at a glance
 // Key of a name claim (names/{key}), stored in the profile as nameKey: lowercase and accent-insensitive, so
@@ -1251,12 +1253,14 @@ async function makePDF(d) {
 }
 /* ================= views ================= */
 const U = () => S.ui;
+// A way back to the list that stays in view while scrolling through a long page (activity log, account, sign-up).
+function backBarHTML(act) { return '<div class="backbar"><button type="button" class="link" data-act="' + act + '">← Back to the list</button></div>'; }
 function viewHTML() {
   const vm = S.vm; const ui = U();
   if (needsProfile()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + profileHTML() + '</div>';
-  if (ui.accountOpen && loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + accountPageHTML() + '</div>';
-  if (ui.logOpen && isOrg()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + logPageHTML() + '</div>';
-  if (ui.authOpen && !loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + authHTML() + '</div>';
+  if (ui.accountOpen && loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + backBarHTML('account-close') + accountPageHTML() + '</div>';
+  if (ui.logOpen && isOrg()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + backBarHTML('log-close') + logPageHTML() + '</div>';
+  if (ui.authOpen && !loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + backBarHTML('auth-close') + authHTML() + '</div>';
   return bandHTML(vm) + '<div class="wrap">' + mapHTML(vm) + statusHTML(vm) + examplesHTML() + finalRosterHTML(vm) + meHTML(vm) + listsHTML(vm) + historyHTML(vm) + orgHTML(vm) + footerHTML(vm) + '</div>';
 }
 function bandHTML(vm) {
