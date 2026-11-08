@@ -1,4 +1,4 @@
-# Test report · Version 1.0 (builds v19 → v22) · 6–7 November 2026
+# Test report · Version 1.0 (builds v19 → v24) · 6–8 November 2026
 
 All automated suites run in Chromium (Playwright) against the built page, with an in-memory stand-in for
 Firebase (Firestore + Auth) that reproduces server timestamps, batches, live snapshots and pending writes.
@@ -85,6 +85,19 @@ Found and fixed:
 2. Names consisting of symbols only, or whose key would be an invalid document ID (".", "..", "__x__"), are refused with a hint instead of a confusing Firebase error.
 3. "Add to list" now treats "Doğukan" and "Dogukan" as the same person, like registration does.
 4. Activity-log CSV: cells starting with = + - @ get a leading apostrophe so spreadsheets don't run them as formulas.
+
+## Build v24 (8 November): typing in the session form
+
+Reported by Koray: typing 38 into "Roster (players)" gave 83, because the page re-renders on every keystroke and a
+number input cannot restore the caret, so it jumped to the front. All numeric boxes (roster, bench, duration, court
+counts) are now text fields with a numeric keyboard, whose caret survives the re-render. At the same time the date and
+time fields became typed European fields (DD-MM-YYYY, HH:MM 24-hour, DD-MM-YYYY HH:MM) with separators added while
+typing, a hint and a disabled save button for invalid values, ISO input tolerated, and the native picker behind the icon.
+
+| Suite | Covers | Checks |
+|---|---|---|
+| run21 | typing digits into every numeric box (caret at the end, 38 stays 38), dates/times typed with and without separators, backspace never re-adds separators, invalid dates (31-02-2026, 25:00) flagged and blocking, dots and single digits accepted, pickers, presets, saved session carries ISO values, band shows the date, court counts | 26 |
+| all other suites | unchanged, 0 failures | 651 |
 
 **Order matters for this one: publish the v21 rules first, then deploy the page.** The v20 page works with the v21
 rules; the v21 page with the old rules would refuse new registrations and renames of names with non-ASCII letters

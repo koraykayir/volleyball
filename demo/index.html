@@ -134,6 +134,14 @@ a.btn{text-decoration:none; display:inline-block; line-height:1}
 .link{background:none; border:0; padding:0; color:var(--court); cursor:pointer; font-weight:600; font-size:inherit}
 .link:hover{text-decoration:underline}
 .inp{width:100%; font:15px/1.3 var(--body); padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); color:var(--fg)}
+.withpick{position:relative}
+.withpick .inp{padding-right:46px}
+.withpick .pick{position:absolute; right:4px; top:50%; transform:translateY(-50%); width:36px; height:34px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:18px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer}
+.withpick .pick:hover{background:var(--soft); color:var(--fg)}
+.withpick .pickin{position:absolute; right:4px; top:50%; transform:translateY(-50%); width:36px; height:34px; opacity:0; border:0; padding:0; margin:0; font-size:16px}
+.inp.bad{border-color:var(--danger, #d14)}
+.fhint{font-size:12.5px; margin-top:4px; color:var(--muted)}
+.fhint.bad{color:var(--danger, #d14)}
 .inp:focus{outline:2px solid var(--court); outline-offset:1px; border-color:transparent}
 .inp.err{border-color:var(--bad)}
 textarea.inp{min-height:70px; resize:vertical}
@@ -272,6 +280,37 @@ const inArtifact = () => !!(window.claude && typeof window.claude.use === 'funct
 function localDateStr(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 function eventDateObj(ev) { if (!ev || !ev.date) return null; const d = new Date(ev.date + 'T' + (ev.time || '12:00')); return isNaN(d) ? null : d; }
 function fmtEventDate(ev) { const d = eventDateObj(ev); if (!d) return ev && ev.date ? ev.date : ''; return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }); }
+// Dates and times are typed the European way (DD-MM-YYYY, 24-hour HH:MM) and stored as ISO (YYYY-MM-DD, HH:MM,
+// YYYY-MM-DDTHH:MM), which the rest of the page and the database use.
+const pad2 = n => String(n).padStart(2, '0');
+function isoToEU(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); return m ? m[3] + '-' + m[2] + '-' + m[1] : ''; }
+function euToISO(txt) { const t = String(txt || '').trim(); const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t); const m = iso ? [t, iso[3], iso[2], iso[1]] : /^(\d{1,2})[-./](\d{1,2})[-./](\d{4})$/.exec(t); if (!m) return null; const d = +m[1], mo = +m[2], y = +m[3]; const dt = new Date(y, mo - 1, d); if (mo < 1 || mo > 12 || d < 1 || dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null; return y + '-' + pad2(mo) + '-' + pad2(d); }
+function timeToISO(txt) { const m = /^(\d{1,2})[:.](\d{2})$/.exec(String(txt || '').trim()); if (!m) return null; const h = +m[1], mi = +m[2]; if (h > 23 || mi > 59) return null; return pad2(h) + ':' + pad2(mi); }
+function isoDTToEU(iso) { const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(iso || ''); return m ? isoToEU(m[1]) + ' ' + m[2] : ''; }
+function euDTToISO(txt) { const m = /^(\S+)[\sT]+(\S+)$/.exec(String(txt || '').trim()); if (!m) return null; const d = euToISO(m[1]), t = timeToISO(m[2]); return d && t ? d + 'T' + t : null; }
+// While digits are being typed, the separators are added at the right places (never on deletion).
+function autoSep(kind, v, prev) {
+  if (v.length <= (prev || '').length) return v;
+  if (kind === 'date') return /^\d{2}$/.test(v) || /^\d{2}-\d{2}$/.test(v) ? v + '-' : v;
+  if (kind === 'time') return /^\d{2}$/.test(v) ? v + ':' : v;
+  if (/^\d{2}$/.test(v) || /^\d{2}-\d{2}$/.test(v)) return v + '-';
+  if (/^\d{2}-\d{2}-\d{4}$/.test(v)) return v + ' ';
+  if (/^\d{2}-\d{2}-\d{4} \d{2}$/.test(v)) return v + ':';
+  return v;
+}
+const EV_DT = { evDate: { kind: 'date', f: 'date', toISO: euToISO, fromISO: isoToEU, hint: 'Use DD-MM-YYYY, e.g. 14-11-2026.' }, evTime: { kind: 'time', f: 'time', toISO: timeToISO, fromISO: v => v || '', hint: 'Use HH:MM (24-hour), e.g. 19:00.' }, evOpensAt: { kind: 'dt', f: 'opensAt', toISO: euDTToISO, fromISO: isoDTToEU, hint: 'Use DD-MM-YYYY HH:MM, e.g. 10-11-2026 20:00.' } };
+const ICON_CAL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>';
+const ICON_CLOCK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+// A typed date/time field with a native picker behind the icon (opens where the browser supports it).
+function dtField(id, label, ev, icon, nativeType) {
+  const ui = U(); const spec = EV_DT[id]; const iso = ev[spec.f] || ''; const raw = ui.evRaw && ui.evRaw[id] != null ? ui.evRaw[id] : spec.fromISO(iso);
+  const bad = !!(ui.evBad && ui.evBad[id]); const ph = spec.kind === 'date' ? 'DD-MM-YYYY' : spec.kind === 'time' ? 'HH:MM' : 'DD-MM-YYYY HH:MM';
+  return '<div class="field"><label class="f" for="' + id + '">' + label + '</label><div class="withpick">' +
+    '<input class="inp' + (bad ? ' bad' : '') + '" id="' + id + '" data-ui="' + id + '" type="text" inputmode="numeric" autocomplete="off" placeholder="' + ph + '" maxlength="' + (spec.kind === 'date' ? 10 : spec.kind === 'time' ? 5 : 16) + '" value="' + esc(raw) + '">' +
+    '<button type="button" class="pick" data-act="pick" data-for="' + id + 'Pick" aria-label="Open the picker" tabindex="-1">' + icon + '</button>' +
+    '<input class="pickin" id="' + id + 'Pick" data-ui="' + id + 'Pick" data-act="pick" data-for="' + id + 'Pick" type="' + nativeType + '" tabindex="-1" aria-hidden="true" value="' + esc(iso) + '">' +
+    '</div>' + (bad ? '<div class="fhint bad">' + spec.hint + '</div>' : '') + '</div>';
+}
 function fmtEventLong(ev) { const d = eventDateObj(ev); if (!d) return ev && ev.date ? ev.date : ''; return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }); }
 function parseTs(s) {
   if (!s) return null;
@@ -429,7 +468,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v23'; // build tag for the self-update check
+const APP_VERSION = 'v24'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
 const APP_SHOWN = APP_LABEL + ' (' + APP_VERSION + ')'; // in the status bar, so a new build is recognisable at a glance
 // Key of a name claim (names/{key}), stored in the profile as nameKey: lowercase and accent-insensitive, so
@@ -1500,17 +1539,17 @@ function eventFormHTML(vm) {
   const cur = vm.event;
   return '<div class="sub"><h2 class="sec">Session</h2>' +
     (cur ? '<div class="small muted">Current: ' + esc(fmtEventDate(cur)) + (cur.time ? ' ' + esc(cur.time) : '') + ' · ' + vm.attendees.length + ' signed up (' + vm.attendees.filter(p => p.paid).length + ' paid)</div>' : '<div class="small muted">No session yet. Fill this in and start one.</div>') +
-    '<div class="grid2"><div class="field"><label class="f" for="evDate">Date</label><input class="inp" id="evDate" data-ui="evDate" type="date" value="' + esc(ev.date || '') + '"></div><div class="field"><label class="f" for="evTime">Time</label><input class="inp" id="evTime" data-ui="evTime" type="time" value="' + esc(ev.time || '') + '"></div></div>' +
+    '<div class="grid2">' + dtField('evDate', 'Date', ev, ICON_CAL, 'date') + dtField('evTime', 'Time', ev, ICON_CLOCK, 'time') + '</div>' +
     '<div class="field"><label class="f" for="evPlace">Place</label><input class="inp" id="evPlace" data-ui="evPlace" value="' + esc(ev.place || '') + '" placeholder="Hall or beach court"></div>' +
     '<div class="grid2"><div class="field"><label class="f" for="evVenueType">Indoor / outdoor</label><select class="inp" id="evVenueType" data-ui="evVenueType"><option value=""' + (!ev.venueType ? ' selected' : '') + '>–</option><option value="indoor"' + (ev.venueType === 'indoor' ? ' selected' : '') + '>Indoor</option><option value="outdoor"' + (ev.venueType === 'outdoor' ? ' selected' : '') + '>Outdoor</option></select></div><div class="field"><label class="f" for="evFormats">Games <span class="muted">(for the announcement)</span></label><input class="inp" id="evFormats" data-ui="evFormats" value="' + esc(ev.formats || '') + '" placeholder="e.g. 3v3 / 4v4"></div></div>' +
-    '<div class="grid3"><div class="field"><label class="f" for="evCap">Roster <span class="muted">(players)</span></label><input class="inp" id="evCap" data-ui="evCap" type="number" min="2" max="60" step="2" inputmode="numeric" value="' + esc(ev.cap == null ? 14 : ev.cap) + '"></div><div class="field"><label class="f" for="evBench">Bench <span class="muted">(max.)</span></label><input class="inp" id="evBench" data-ui="evBench" type="number" min="0" max="60" inputmode="numeric" value="' + esc(ev.bench == null ? 4 : ev.bench) + '"></div><div class="field"><label class="f" for="evPrice">Price per person</label><input class="inp" id="evPrice" data-ui="evPrice" value="' + esc(ev.price || '') + '" placeholder="8 €"></div></div>' +
-    '<div class="grid2"><div class="field"><label class="f" for="evOpensAt">Sign-ups open at <span class="muted">(optional)</span></label><input class="inp" id="evOpensAt" data-ui="evOpensAt" type="datetime-local" value="' + esc(ev.opensAt || '') + '"></div><div class="field"><label class="f" for="evDuration">Duration (minutes)</label><input class="inp" id="evDuration" data-ui="evDuration" type="number" min="30" max="600" step="15" inputmode="numeric" value="' + esc(ev.duration || 120) + '"></div></div>' +
+    '<div class="grid3"><div class="field"><label class="f" for="evCap">Roster <span class="muted">(players)</span></label><input class="inp" id="evCap" data-ui="evCap" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="' + esc(ev.cap == null ? 14 : ev.cap) + '"></div><div class="field"><label class="f" for="evBench">Bench <span class="muted">(max.)</span></label><input class="inp" id="evBench" data-ui="evBench" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="' + esc(ev.bench == null ? 4 : ev.bench) + '"></div><div class="field"><label class="f" for="evPrice">Price per person</label><input class="inp" id="evPrice" data-ui="evPrice" value="' + esc(ev.price || '') + '" placeholder="8 €"></div></div>' +
+    '<div class="grid2">' + dtField('evOpensAt', 'Sign-ups open at <span class="muted">(optional)</span>', ev, ICON_CAL, 'datetime-local') + '<div class="field"><label class="f" for="evDuration">Duration (minutes)</label><input class="inp" id="evDuration" data-ui="evDuration" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="' + esc(ev.duration || 120) + '"></div></div>' +
     '<div class="chips"><span class="small muted" style="align-self:center">Open:</span><button type="button" class="chip" data-act="ev-open-preset" data-p="mon">Monday before, 20:00</button><button type="button" class="chip" data-act="ev-open-preset" data-p="d3">3 days before, 20:00</button><button type="button" class="chip" data-act="ev-open-preset" data-p="d7">1 week before, 20:00</button><button type="button" class="chip" data-act="ev-open-preset" data-p="none">Right away</button></div>' +
     '<div class="field"><label class="f" for="evNote">Note for players (optional)</label><input class="inp" id="evNote" data-ui="evNote" value="' + esc(ev.note || '') + '" placeholder="Bring a white or dark shirt"></div>' +
     '<div class="small muted"><b id="capPreview">' + cap + '</b> players play; after that <span id="benchPreview">' + (bench == null ? 'anyone can wait on the bench' : 'up to <b>' + bench + '</b> wait on the bench') + '</span>. The courts (2v2 to 5v5) are chosen when you generate the roster.' + (ev.opensAt ? ' Joins before the opening time don\'t count.' : '') + '</div>' +
     (cap % 2 ? '<div class="note bad">An odd roster count (' + cap + ') can\'t be split into courts: teams need an even number. Use ' + (cap - 1) + ' or ' + (cap + 1) + '.</div>' : '') +
-    '<div class="actions">' + (cur ? '<button type="button" class="btn sm" data-act="ev-update"' + (!ui.evDirty || cap % 2 ? ' disabled' : '') + '>Update this session</button>' + (ui.evDirty ? '<span class="pill dirty">Unsaved changes</span>' : '') : '') +
-    (ui.newConfirm ? '<span class="small">Start a new session? The current list and payments move to Past sessions.</span><button type="button" class="btn sm danger" data-act="ev-new-yes"' + (cap % 2 ? ' disabled' : '') + '>Start new</button><button type="button" class="btn sm ghost" data-act="ev-new-no">Cancel</button>' : '<button type="button" class="btn sm ' + (cur ? 'outline' : '') + '" data-act="ev-new-ask"' + (cap % 2 ? ' disabled' : '') + '>' + (cur ? (vm.played ? 'Start the next session' : 'New session (resets the list)') : 'Start the session') + '</button>') +
+    '<div class="actions">' + (cur ? '<button type="button" class="btn sm" data-act="ev-update"' + (!ui.evDirty || cap % 2 || evFormBad() ? ' disabled' : '') + '>Update this session</button>' + (ui.evDirty ? '<span class="pill dirty">Unsaved changes</span>' : '') : '') +
+    (ui.newConfirm ? '<span class="small">Start a new session? The current list and payments move to Past sessions.</span><button type="button" class="btn sm danger" data-act="ev-new-yes"' + (cap % 2 || evFormBad() ? ' disabled' : '') + '>Start new</button><button type="button" class="btn sm ghost" data-act="ev-new-no">Cancel</button>' : '<button type="button" class="btn sm ' + (cur ? 'outline' : '') + '" data-act="ev-new-ask"' + (cap % 2 || evFormBad() ? ' disabled' : '') + '>' + (cur ? (vm.played ? 'Start the next session' : 'New session (resets the list)') : 'Start the session') + '</button>') +
     (cur || vm.history.length ? '<button type="button" class="btn sm ghost" data-act="ev-copy-last">Same as last time, +7 days</button>' : '') +
     '</div>' + (cur ? playedControlsHTML(vm) : '') + '</div>' + (cur && !vm.played ? announceHTML(vm) : '') + (cur ? paymentsHTML(vm) : '');
 }
@@ -1613,7 +1652,7 @@ function rosterSectionHTML(vm) {
 function rosterCourtsHTML(ctx) {
   const r = U().roster; const rc = r.rc || countsOf([]); const cap = capacityOf(ctx.ev); const list = listOf(rc); const hold = list.reduce((t, f) => t + courtSize(f), 0);
   const paid = ctx.attendees.filter(p => p.paid).length; const ok = cap > 0 && hold === cap;
-  const rows = FORMATS.map(f => '<div class="field"><label class="f" for="rc' + f + '">' + f + ' <span class="muted">(' + courtSize(f) + ' players)</span></label><input class="inp" id="rc' + f + '" data-ui="rc' + f + '" type="number" min="0" max="12" inputmode="numeric" value="' + (rc[f] || 0) + '"></div>').join('');
+  const rows = FORMATS.map(f => '<div class="field"><label class="f" for="rc' + f + '">' + f + ' <span class="muted">(' + courtSize(f) + ' players)</span></label><input class="inp" id="rc' + f + '" data-ui="rc' + f + '" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="' + (rc[f] || 0) + '"></div>').join('');
   const status = !cap ? '<div class="note bad">This session has no roster count. Set it in the session form first.</div>'
     : ok ? '<div class="note ok">' + esc(courtsLabel(list)) + ': room for exactly ' + cap + ' players.</div>'
     : '<div class="note bad">These courts hold <b>' + hold + '</b> players, but the roster is <b>' + cap + '</b>. ' + (hold < cap ? 'Add room for ' + (cap - hold) + ' more.' : 'That is ' + (hold - cap) + ' too many.') + (cap % 2 ? ' An odd roster count can never match; change it in the session form.' : '') + '</div>';
@@ -1747,6 +1786,7 @@ function uiBench(e) { if (!e || e.bench == null || String(e.bench).trim() === ''
 function syncEventForm() {
   const ui = U(); const ev = S.vm.event;
   if (ui.evDirty) return;
+  ui.evRaw = {}; ui.evBad = {};
   if (ev) { const b = benchCapOf(ev); ui.ev = { date: ev.date || '', time: ev.time || '', place: ev.place || '', venueType: ev.venueType || '', formats: ev.formats || '', cap: capacityOf(ev) || 14, bench: b == null ? '' : b, price: ev.price || '', note: ev.note || '', opensAt: ev.opensAt || '', duration: ev.duration || 120 }; }
   else if (!ui.ev) ui.ev = { date: '', time: '19:00', place: '', venueType: '', formats: '', cap: 14, bench: 4, price: '', note: '', opensAt: '', duration: 120 };
 }
@@ -1756,6 +1796,7 @@ function newEventId(date) {
   const base = date || localDateStr(new Date()); const ids = new Set((S.data.sessions || []).map(s => s.id));
   if (!ids.has(base)) return base; let i = 2; while (ids.has(base + '-' + i)) i++; return base + '-' + i;
 }
+function evFormBad() { const ui = U(); const bad = ui.evBad || {}; return !!(bad.evDate || bad.evTime || bad.evOpensAt) || !(ui.ev && ui.ev.date) || !(ui.ev && ui.ev.time); }
 function eventFields() { const p = eventPayload(''); delete p.id; return p; }
 function eventPayload(id) {
   const e = U().ev || {}; const cap = uiCap(e) || 8; const bench = uiBench(e);
@@ -1858,8 +1899,10 @@ const actions = {
   'list-copy': () => copyText(listText(S.vm)),
   'link-copy': () => { if (S.cfg.pageUrl) copyText(S.cfg.pageUrl); },
   'qr-save': async () => { if (!window.qrcode || !S.cfg.pageUrl) { toast('The QR code is not ready yet.'); return; } try { const q = qrcode(0, 'M'); q.addData(S.cfg.pageUrl); q.make(); const dataUrl = q.createDataURL(10, 4); const blob = await (await fetch(dataUrl)).blob(); await saveFile('volleyball-signup-qr.gif', blob, 'image/gif'); } catch (e) { toast('Could not save the QR code.'); } },
+  'pick': (el) => { const t = document.getElementById(el.dataset.for); if (!t) return; try { if (t.showPicker) t.showPicker(); else t.focus(); } catch (e) { try { t.focus(); } catch (e2) {} } },
   'ev-open-preset': (el) => {
     const ui = U(); ui.ev = ui.ev || {}; const p = el.dataset.p; const base = ui.ev.date ? new Date(ui.ev.date + 'T12:00') : new Date();
+    ui.evRaw = ui.evRaw || {}; delete ui.evRaw.evOpensAt; ui.evBad = ui.evBad || {}; ui.evBad.evOpensAt = false;
     if (p === 'none') ui.ev.opensAt = '';
     else { const d = new Date(base); if (p === 'mon') { const back = (d.getDay() + 6) % 7 || 7; d.setDate(d.getDate() - back); } else d.setDate(d.getDate() - (p === 'd7' ? 7 : 3)); ui.ev.opensAt = localDateStr(d) + 'T20:00'; }
     ui.evDirty = true; render();
@@ -2081,6 +2124,18 @@ async function checkForUpdate() {
 function handleInput(el) {
   if (!el || !el.dataset || !el.dataset.ui) return;
   const k = el.dataset.ui; const ui = U(); const v = el.type === 'checkbox' ? el.checked : el.value;
+  if (EV_DT[k]) { // typed date / time: keep what was typed, store the ISO value when it parses
+    const spec = EV_DT[k]; ui.ev = ui.ev || {}; ui.evRaw = ui.evRaw || {}; ui.evBad = ui.evBad || {};
+    let text = autoSep(spec.kind, String(v), ui.evRaw[k] != null ? ui.evRaw[k] : spec.fromISO(ui.ev[spec.f] || ''));
+    text = text.replace(/([-./: ])[-./: ]+/g, '$1'); // a separator typed right after an added one does not double up
+    if (text !== v) el.value = text;
+    ui.evRaw[k] = text; const iso = text.trim() === '' ? '' : spec.toISO(text);
+    ui.evBad[k] = iso == null; ui.ev[spec.f] = iso == null ? '' : iso; ui.evDirty = true; render(); return;
+  }
+  if (/^ev(Date|Time|OpensAt)Pick$/.test(k)) { // the native picker chose a value
+    const id = k.slice(0, -4); const spec = EV_DT[id]; ui.ev = ui.ev || {}; ui.evRaw = ui.evRaw || {}; ui.evBad = ui.evBad || {};
+    const iso = String(v || ''); ui.ev[spec.f] = spec.kind === 'dt' ? iso.slice(0, 16) : iso; delete ui.evRaw[id]; ui.evBad[id] = false; ui.evDirty = true; render(); return;
+  }
   if (k.startsWith('ev')) { const f = k.slice(2, 3).toLowerCase() + k.slice(3); ui.ev = ui.ev || {}; ui.ev[f] = v; const wasDirty = ui.evDirty; ui.evDirty = true; if (!wasDirty || k === 'evCap' || k === 'evBench') { render(); return; } const cp = $('#capPreview'); if (cp) cp.textContent = uiCap(ui.ev); const bp = $('#benchPreview'); if (bp) { const b = uiBench(ui.ev); bp.innerHTML = b == null ? 'anyone can wait on the bench' : 'up to <b>' + b + '</b> wait on the bench'; } return; }
   if (/^rc\dv\d$/.test(k)) { const r = ui.roster; r.rc = r.rc || countsOf([]); r.rc[k.slice(2)] = Math.min(12, Math.max(0, parseInt(v, 10) || 0)); render(); return; }
   if (k === 'pairsTogether' || k === 'pairsApart') {

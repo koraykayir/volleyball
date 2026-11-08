@@ -128,13 +128,13 @@ footer{color:var(--muted); font-size:13px; margin-top:24px}
 </div>
 <table>
 <tr><th>Field</th><th>What it does</th></tr>
-<tr><td>Date, Time</td><td>When the game starts. The time matters for the 3-hour leave rule and the calendar links.</td></tr>
+<tr><td>Date, Time</td><td>When the game starts, typed as <code>DD-MM-YYYY</code> and <code>HH:MM</code> (24-hour); the separators appear by themselves while you type digits, and the icon at the right opens the phone's or browser's picker. The time matters for the 3-hour leave rule and the calendar links.</td></tr>
 <tr><td>Place</td><td>Shown in the band, the announcement and the calendar entry.</td></tr>
 <tr><td>Indoor / outdoor, Games</td><td>Only used in the announcement ("📍 Sporthalle · Outdoor", "🏐 Mixed games · 3v3 / 4v4"). Leave Games empty and the announcement uses the saved roster's courts, or a sensible default for the roster count.</td></tr>
 <tr><td>Roster (players)</td><td>How many play. The first that many on the list play; must be an even number (teams of equal size).</td></tr>
 <tr><td>Bench (max.)</td><td>How many may wait on the bench. Once roster + bench are taken, nobody else can join. Leave it empty for no limit.</td></tr>
 <tr><td>Price per person</td><td>Shown to players on their card ("Pay 8 € to Gürkan") and in the announcement.</td></tr>
-<tr><td>Sign-ups open at</td><td>Optional. Before that moment the page shows a countdown and refuses joins, enforced by the server, so a changed phone clock does not help anyone. The presets under the field set it to Monday before / 3 days before / 1 week before at 20:00, or clear it.</td></tr>
+<tr><td>Sign-ups open at</td><td>Optional, typed as <code>DD-MM-YYYY HH:MM</code>. Before that moment the page shows a countdown and refuses joins, enforced by the server, so a changed phone clock does not help anyone. The presets under the field set it to Monday before / 3 days before / 1 week before at 20:00, or clear it.</td></tr>
 <tr><td>Duration</td><td>For the calendar entry.</td></tr>
 <tr><td>Note for players</td><td>Free text, shown in the announcement and the calendar entry.</td></tr>
 </table>
@@ -360,9 +360,10 @@ footer{color:var(--muted); font-size:13px; margin-top:24px}
 
 <section class="s" id="changelog">
 <h2>18. Changelog</h2>
-<p>The status line at the top of the page shows the version people see and, in brackets, the build: <b>Live · 1.0 (v23)</b>. The build number goes up with every deployment, so you can tell at a glance whether a change is live. The page reloads itself once when a newer build is published. The <a href="../docs/changelog-1.0.pdf">1.0 changelog with screenshots (PDF)</a> covers builds v11 to v16 in detail.</p>
+<p>The status line at the top of the page shows the version people see and, in brackets, the build: <b>Live · 1.0 (v24)</b>. The build number goes up with every deployment, so you can tell at a glance whether a change is live. The page reloads itself once when a newer build is published. The <a href="../docs/changelog-1.0.pdf">1.0 changelog with screenshots (PDF)</a> covers builds v11 to v16 in detail.</p>
 <table>
 <tr><th>Build</th><th>Date</th><th>What changed</th></tr>
+<tr><td>v24</td><td>8 Nov 2026</td><td>Typing in the roster, bench, duration and court-count boxes no longer jumps the cursor to the front (38 stayed 83). Date and time fields are typed the European way: DD-MM-YYYY, HH:MM (24-hour) and DD-MM-YYYY HH:MM, with separators added while you type, a clear hint when a value is not valid, and the native picker behind the icon.</td></tr>
 <tr><td>v23</td><td>7 Nov 2026</td><td>Build number shown in the status line. Changelog added to this guide.</td></tr>
 <tr><td>v22</td><td>7 Nov 2026</td><td>"Mark all as paid", "Confirm I've-paid claims" and no-shows at "Mark as played" are written in batches of 5 (Firestore allows 20 rule look-ups per batch; before, more than 10 people at once could be refused). Names without a letter or digit are refused with a hint. "Add to list" treats "Doğukan" and "Dogukan" as the same person. Activity-log CSV protects against formula cells.</td></tr>
 <tr><td>v21</td><td>7 Nov 2026</td><td>Names with uppercase Turkish letters (Ç, Ö, Ş, İ…) could not register ("name taken"): the rules engine does not lowercase them. The page now computes the uniqueness key itself, lowercase and accent-insensitive ("Doğa Çalışkan" = "Doga Caliskan"), and stores it in the profile; existing claims move over on each player's next visit. Needs the rules published on 7 Nov.</td></tr>
@@ -383,7 +384,7 @@ footer{color:var(--muted); font-size:13px; margin-top:24px}
 <tr><td>—</td><td>30 Oct 2026</td><td>First version of the sign-up page.</td></tr>
 </table>
 <a class="back" href="../">← Back to the page</a>
-<footer>Organizer guide for version 1.0 · updated 7 November 2026 (build v23)</footer>
+<footer>Organizer guide for version 1.0 · updated 8 November 2026 (build v24)</footer>
 </section>
 </div>
 </body>

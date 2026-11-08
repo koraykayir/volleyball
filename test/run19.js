@@ -13,7 +13,8 @@ const CFG = '<script id="vb-config" type="application/json">{"firebase":{"apiKey
   const html = fs.readFileSync(SRC, 'utf8').replace('<script id="vb-config" type="application/json">{}</script>', CFG);
   const browser = await chromium.launch();
   // ---------- 1. update check
-  for (const [label, versionBody, expectReloads] of [['same build', 'v21\n', 0], ['newer build', 'v22\n', 1], ['garbage (404 page)', '<!doctype html><title>404</title>', 0], ['older build', 'v9\n', 1]]) {
+  const CUR = /const APP_VERSION = '(v\d+)'/.exec(html)[1]; const NEXT = 'v' + (parseInt(CUR.slice(1), 10) + 1);
+  for (const [label, versionBody, expectReloads] of [['same build', CUR + '\n', 0], ['newer build', NEXT + '\n', 1], ['garbage (404 page)', '<!doctype html><title>404</title>', 0], ['older build', 'v9\n', 1]]) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 800 } }); await ctx.addInitScript(FAKE); await ctx.addInitScript(RULES);
     let loads = 0; let versionHits = 0;
     await ctx.route('**/*', r => {
