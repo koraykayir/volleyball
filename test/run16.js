@@ -18,12 +18,12 @@ const CFG = '<script id="vb-config" type="application/json">{"firebase":{"apiKey
     fs.writeFileSync(p, html.replace('<script id="vb-config" type="application/json">{}</script>', CFG));
     const ctx = await browser.newContext({ viewport: { width: 390, height: 900 } });
     await ctx.addInitScript(FAKE);
-    await ctx.addInitScript(([legacy, lower]) => { window.__rulesLegacy = legacy; window.__rulesLower = lower; }, [!!legacy, lower || 'full']);
+    await ctx.addInitScript(([legacy, lower]) => { if (window.top !== window) return; window.__rulesLegacy = legacy; window.__rulesLower = lower; }, [!!legacy, lower || 'full']);
     await ctx.addInitScript(RULES);
-    await ctx.addInitScript(() => { window.__fake.seed('admins/organizer@example.com', {}); window.__fake.seed('config/app', { title: 'Volley Berlin | Beachvolleyball', organizer: 'Gürkan', pageUrl: 'https://koraykayir.github.io/volleyball/' }); });
+    await ctx.addInitScript(() => { if (window.top !== window) return; window.__fake.seed('admins/organizer@example.com', {}); window.__fake.seed('config/app', { title: 'Volley Berlin | Beachvolleyball', organizer: 'Gürkan', pageUrl: 'https://koraykayir.github.io/volleyball/' }); });
     if (seed) await ctx.addInitScript(seed);
     const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
-    await page.route('**/cdn.jsdelivr.net/**', r => r.abort());
+    await page.route('**/cdn.jsdelivr.net/**', r => r.abort()); await page.route('**/maps.google.com/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>map</title>' }));
     await page.goto('file://' + p); await sleep(300);
     const h = {
       ctx, page, errs,
@@ -45,7 +45,7 @@ const CFG = '<script id="vb-config" type="application/json">{"firebase":{"apiKey
     };
     return h;
   }
-  const seedSession = () => { const f = window.__fake; const d = new Date(); d.setDate(d.getDate() + 3); const id = d.toISOString().slice(0, 10); f.seed('sessions/' + id, { date: id, time: '19:00', place: 'Beach Mitte', venueType: 'outdoor', formats: '2v2', capacity: 4, benchCap: 2, price: '8 €', note: '', opensAt: '', opensAtTs: null, startsAtTs: new f.Timestamp(d.getTime()), duration: 120, status: 'open', playedAt: null, roster: null, summary: null, createdAt: new f.Timestamp(Date.now() - 86400e3) }); const c = f.store.get('config/app'); c.currentSessionId = id; f.seed('config/app', c); };
+  const seedSession = () => { if (window.top !== window) return; const f = window.__fake; const d = new Date(); d.setDate(d.getDate() + 3); const id = d.toISOString().slice(0, 10); f.seed('sessions/' + id, { date: id, time: '19:00', place: 'Beach Mitte', venueType: 'outdoor', formats: '2v2', capacity: 4, benchCap: 2, price: '8 €', note: '', opensAt: '', opensAtTs: null, startsAtTs: new f.Timestamp(d.getTime()), duration: 120, status: 'open', playedAt: null, roster: null, summary: null, createdAt: new f.Timestamp(Date.now() - 86400e3) }); const c = f.store.get('config/app'); c.currentSessionId = id; f.seed('config/app', c); };
 
   // ---------- 0. the published build (v19) with the published rules: the bug Koray hit
   {

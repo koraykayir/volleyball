@@ -31,10 +31,10 @@ const CFG = '<script id="vb-config" type="application/json">{"firebase":{"apiKey
   // ---------- 2. two devices
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 900 } }); await ctx.addInitScript(FAKE); await ctx.addInitScript(RULES);
-    await ctx.addInitScript(() => { const f = window.__fake; const d = new Date(); d.setDate(d.getDate() + 2); const id = d.toISOString().slice(0, 10); f.seed('admins/organizer@example.com', {}); f.seed('config/app', { title: 'T', organizer: 'Gürkan', pageUrl: 'https://koraykayir.github.io/volleyball/', currentSessionId: id }); f.seed('sessions/' + id, { date: id, time: '19:00', place: 'Beach Mitte', capacity: 2, benchCap: 2, status: 'open', createdAt: new f.Timestamp(1), startsAtTs: new f.Timestamp(d.getTime()), duration: 120, roster: null, summary: null, playedAt: null }); });
+    await ctx.addInitScript(() => { if (window.top !== window) return; const f = window.__fake; const d = new Date(); d.setDate(d.getDate() + 2); const id = d.toISOString().slice(0, 10); f.seed('admins/organizer@example.com', {}); f.seed('config/app', { title: 'T', organizer: 'Gürkan', pageUrl: 'https://koraykayir.github.io/volleyball/', currentSessionId: id }); f.seed('sessions/' + id, { date: id, time: '19:00', place: 'Beach Mitte', capacity: 2, benchCap: 2, status: 'open', createdAt: new f.Timestamp(1), startsAtTs: new f.Timestamp(d.getTime()), duration: 120, roster: null, summary: null, playedAt: null }); });
     const fp = path.join(__dirname, 'fb19.html'); fs.writeFileSync(fp, html);
     const A = await ctx.newPage(), B = await ctx.newPage(); const errs = []; [A, B].forEach(p => { p.on('pageerror', e => errs.push(e.message)); });
-    for (const p of [A, B]) { await p.route('**/cdn.jsdelivr.net/**', r => r.abort()); await p.goto('file://' + fp); await sleep(300); }
+    for (const p of [A, B]) { await p.route('**/cdn.jsdelivr.net/**', r => r.abort()); await p.route('**/maps.google.com/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>map</title>' })); await p.goto('file://' + fp); await sleep(300); }
     const rows = p => p.$$eval('.row', rs => rs.map(r => r.querySelector('.pos').textContent + ':' + r.querySelector('.n').textContent.trim()));
     // A: player registers and joins
     await A.click('.status [data-act="auth-open"][data-mode="register"]'); await sleep(80); await A.fill('#auName', 'Ana'); await A.fill('#auEmail', 'ana@example.com'); await A.fill('#auPass', 'secret12'); await A.click('.lvl[data-n="3"]'); await A.click('[data-act="auth-register"]'); await sleep(500);
@@ -67,8 +67,8 @@ const CFG = '<script id="vb-config" type="application/json">{"firebase":{"apiKey
   {
     for (const scheme of ['light', 'dark']) {
       const ctx = await browser.newContext({ viewport: { width: 320, height: 700 }, deviceScaleFactor: 2, colorScheme: scheme });
-      const page = await ctx.newPage(); await page.route('**/cdn.jsdelivr.net/**', r => r.abort()); await page.route('**/fonts.googleapis.com/**', r => r.abort());
-      await page.addInitScript(() => {
+      const page = await ctx.newPage(); await page.route('**/cdn.jsdelivr.net/**', r => r.abort()); await page.route('**/maps.google.com/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>map</title>' })); await page.route('**/fonts.googleapis.com/**', r => r.abort());
+      await page.addInitScript(() => { if (window.top !== window) return;
         const d = new Date(); d.setDate(d.getDate() + 2); const id = d.toISOString().slice(0, 10);
         const names = ['Şükrü Çağrı Öztürk Karakaşoğlu Büyükçekmeceli', 'Ana', 'Maximilian-Alexander von Hohenzollern-Sigmaringen', 'Deniz Doğa Çalışkan', '<img src=x onerror=alert(1)> Bob', 'Cem', 'Dia'];
         const db = { example: false, config: { title: 'Volley Berlin | Beachvolleyball Mixed Open Training', organizer: 'Gürkan', currentSessionId: id, pageUrl: 'https://koraykayir.github.io/volleyball/' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, accounts: {}, pairs: { together: '', apart: '' }, log: {} };

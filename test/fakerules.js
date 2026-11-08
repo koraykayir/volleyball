@@ -6,7 +6,7 @@
 //     v21 = current (page-computed key stored as players.nameKey; strict check for ASCII names only)
 //   window.__rulesLower = 'ascii' (default; what the real engine evidently does: only A-Z are lowercased)
 //                       | 'full' (like JavaScript) | 'simple' (full, but İ -> i)
-(function () {
+if (window.top !== window) { /* frames (the map embed) don't get the stand-in */ } else (function () {
   const F = window.__fake;
   const lowerMode = window.__rulesLower || 'ascii';
   const lower = s => lowerMode === 'ascii' ? String(s).replace(/[A-Z]/g, c => c.toLowerCase()) : lowerMode === 'simple' ? String(s).replace(/\u0130/g, 'i').toLowerCase() : String(s).toLowerCase();

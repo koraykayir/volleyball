@@ -138,6 +138,12 @@ a.btn{text-decoration:none; display:inline-block; line-height:1}
 .withpick .inp{padding-right:46px}
 .withpick .pick{position:absolute; right:4px; top:50%; transform:translateY(-50%); width:36px; height:34px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:18px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer}
 .withpick .pick:hover{background:var(--soft); color:var(--fg)}
+a.pick{text-decoration:none}
+.band .maplink{color:inherit; text-decoration:underline; text-underline-offset:2px; opacity:.9; white-space:nowrap}
+.map{margin:-2px 0 2px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; background:var(--surface)}
+.map iframe{display:block; width:100%; height:190px; border:0; background:var(--soft)}
+.mapfoot{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 12px; font-size:13px; color:var(--muted)}
+.mapfoot a{font-weight:600; white-space:nowrap}
 .withpick .pickin{position:absolute; right:4px; top:50%; transform:translateY(-50%); width:36px; height:34px; opacity:0; border:0; padding:0; margin:0; font-size:16px}
 .inp.bad{border-color:var(--danger, #d14)}
 .fhint{font-size:12.5px; margin-top:4px; color:var(--muted)}
@@ -300,6 +306,7 @@ function autoSep(kind, v, prev) {
 }
 const EV_DT = { evDate: { kind: 'date', f: 'date', toISO: euToISO, fromISO: isoToEU, hint: 'Use DD-MM-YYYY, e.g. 14-11-2026.' }, evTime: { kind: 'time', f: 'time', toISO: timeToISO, fromISO: v => v || '', hint: 'Use HH:MM (24-hour), e.g. 19:00.' }, evOpensAt: { kind: 'dt', f: 'opensAt', toISO: euDTToISO, fromISO: isoDTToEU, hint: 'Use DD-MM-YYYY HH:MM, e.g. 10-11-2026 20:00.' } };
 const ICON_CAL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>';
+const ICON_PIN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
 const ICON_CLOCK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 // A typed date/time field with a native picker behind the icon (opens where the browser supports it).
 function dtField(id, label, ev, icon, nativeType) {
@@ -310,6 +317,30 @@ function dtField(id, label, ev, icon, nativeType) {
     '<button type="button" class="pick" data-act="pick" data-for="' + id + 'Pick" aria-label="Open the picker" tabindex="-1">' + icon + '</button>' +
     '<input class="pickin" id="' + id + 'Pick" data-ui="' + id + 'Pick" data-act="pick" data-for="' + id + 'Pick" type="' + nativeType + '" tabindex="-1" aria-hidden="true" value="' + esc(iso) + '">' +
     '</div>' + (bad ? '<div class="fhint bad">' + spec.hint + '</div>' : '') + '</div>';
+}
+// Where the place is on Google Maps: the link the organizer pasted (Share in the Maps app), or a Maps search for the
+// place name. Plain links, so no API key or billing is needed.
+const COORDS_RE = /^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/;
+function mapsLink(ev) {
+  if (!ev) return ''; const u = String(ev.mapUrl || '').trim(); const c = COORDS_RE.exec(u);
+  if (c) return 'https://www.google.com/maps?q=' + c[1] + ',' + c[2];
+  if (/^https?:\/\//i.test(u)) return u;
+  return ev.place ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(ev.place) : '';
+}
+// What the map snippet centres on: coordinates typed in the field or found in a pasted full Maps link, else the place name.
+function mapQuery(ev) {
+  if (!ev) return ''; const u = String(ev.mapUrl || '').trim();
+  let m = COORDS_RE.exec(u); if (m) return m[1] + ',' + m[2];
+  m = /@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/.exec(u) || /[?&]q=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/.exec(u) || /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/.exec(u);
+  if (m) return m[1] + ',' + m[2];
+  return ev.place || '';
+}
+// The keyless Google Maps embed (no API key, no billing); the organizer's link stays the way to open the place itself.
+function mapEmbedUrl(ev) { const q = mapQuery(ev); return q ? 'https://maps.google.com/maps?q=' + encodeURIComponent(q) + '&z=15&output=embed' : ''; }
+function mapHTML(vm) {
+  const ev = vm.event; if (!ev || vm.played) return ''; const src = mapEmbedUrl(ev); if (!src) return '';
+  return '<section class="map"><iframe title="Map: ' + esc(ev.place || mapQuery(ev)) + '" src="' + esc(src) + '" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>' +
+    '<div class="mapfoot"><span>📍 ' + esc(ev.place || mapQuery(ev)) + '</span><a href="' + esc(mapsLink(ev)) + '" target="_blank" rel="noopener">Open in Google Maps ↗</a></div></section>';
 }
 function fmtEventLong(ev) { const d = eventDateObj(ev); if (!d) return ev && ev.date ? ev.date : ''; return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }); }
 function parseTs(s) {
@@ -383,7 +414,7 @@ function suggestCourts(cap) {
    ratings/{nameLower}   { name, r }  ratings/_pairs { together, apart }   organizers only
    admins/{email}        added by hand in the Firebase console */
 function emptyData(mode) { return { mode, clockOffset: 0, clockSynced: false, status: 'connecting', error: '', authError: '', config: {}, configLoaded: false, sessions: [], sessionsLoaded: false, signups: [], contacts: {}, ratings: {}, players: {}, pairs: { together: '', apart: '' }, user: null, profile: null, profileLoaded: false, example: false, log: null, logLoaded: false }; }
-function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, startsAtMs: s.startsAtMs || 0, duration: s.duration || 120, capacity: s.capacity == null ? null : s.capacity, benchCap: s.benchCap == null ? null : s.benchCap, venueType: s.venueType || '', formats: s.formats || '' }; }
+function sessionEvent(s) { if (!s) return null; return { id: s.id, date: s.date || '', time: s.time || '', place: s.place || '', courts: s.courts, format: s.format, courtsList: Array.isArray(s.courtsList) ? s.courtsList : null, price: s.price || '', note: s.note || '', opensAt: s.opensAt || '', opensAtMs: s.opensAtMs || 0, startsAtMs: s.startsAtMs || 0, duration: s.duration || 120, capacity: s.capacity == null ? null : s.capacity, benchCap: s.benchCap == null ? null : s.benchCap, venueType: s.venueType || '', formats: s.formats || '', mapUrl: s.mapUrl || '' }; }
 // Current time as the server sees it (offset measured against Firestore once logged in; device clock otherwise).
 function now() { return Date.now() + ((S.data && S.data.clockOffset) || 0); }
 // Order is decided by the server clock: Firestore stamps each sign-up on arrival (rules reject any other time).
@@ -431,7 +462,7 @@ const S = {
     orgOpen: false, orgErr: '', orgBusy: false,
     accountOpen: false, acName: null, acPw0: '', acPw1: '', acPw2: '', acErr: '', acInfo: '', acBusy: false,
     authOpen: false, authMode: 'login', authErr: '', authInfo: '', authBusy: false, auName: '', auEmail: '', auPass: '', auLevel: 0, pfName: null, pfLevel: 0,
-    addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false,
+    addName: '', addEmail: '', removeConfirm: null, newConfirm: false, doneConfirm: false, delConfirm: false, noshowSel: {}, clearConfirm: false, histOpen: false, histOpenIds: {}, allPaidConfirm: false,
     ev: null, evDirty: false,
     roster: { mode: 'closed', sel: null, id: null, rc: null }, ratingsOpen: false,
     setupOpen: false, suTitle: '', suOrganizer: '', suPageUrl: '', suSaved: false, acDelete: false, acDelPw: '',
@@ -468,7 +499,7 @@ function parsePairs(ctx) {
 }
 /* ================= backends ================= */
 const FB_VERSION = '10.12.2';
-const APP_VERSION = 'v24'; // build tag for the self-update check
+const APP_VERSION = 'v25'; // build tag for the self-update check
 const APP_LABEL = '1.0'; // what people see
 const APP_SHOWN = APP_LABEL + ' (' + APP_VERSION + ')'; // in the status bar, so a new build is recognisable at a glance
 // Key of a name claim (names/{key}), stored in the profile as nameKey: lowercase and accent-insensitive, so
@@ -672,6 +703,17 @@ function firebaseBackend(conf) {
     updateSession(sid, fields, e) { return e ? one(b => b.update(fs.collection('sessions').doc(sid), withTs(fields)), e) : fs.collection('sessions').doc(sid).update(withTs(fields)); },
     markPlayed(sid, summary, e) { return one(b => b.update(fs.collection('sessions').doc(sid), { status: 'played', playedAt: TS(), summary }), e); },
     reopen(sid, e) { return one(b => b.update(fs.collection('sessions').doc(sid), { status: 'open', playedAt: null }), e); },
+    // Deletes a session with its sign-ups for good (batches of 10, see updateSignups); the log keeps one line about it.
+    async deleteSession(sid, e) {
+      const snap = await fs.collection('signups').where('sessionId', '==', sid).get();
+      const refs = snap.docs.map(x => x.ref);
+      for (let i = 0; i < refs.length; i += 10) { const b = fs.batch(); refs.slice(i, i + 10).forEach(r => b.delete(r)); await b.commit(); }
+      const b = fs.batch();
+      b.delete(fs.collection('sessions').doc(sid));
+      if ((d.config || {}).currentSessionId === sid) b.set(fs.collection('config').doc('app'), { currentSessionId: '' }, { merge: true });
+      addLog(b, e);
+      await b.commit();
+    },
     saveConfig(patch) { return fs.collection('config').doc('app').set(patch, { merge: true }); },
     setRating(n, name, r, e) { const ref = fs.collection('ratings').doc(n); return one(b => r ? b.set(ref, { name, r }) : b.delete(ref), e); },
     setLevel(uid, level, e) { return one(b => b.update(fs.collection('players').doc(uid), { level }), e); },
@@ -833,6 +875,7 @@ function localBackend() {
     async updateSession(sid, fields, e) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], fields); addLog(e); emit(); } },
     async markPlayed(sid, summary, e) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'played', playedAt: Date.now(), summary }); addLog(e); emit(); } },
     async reopen(sid, e) { if (db.sessions[sid]) { Object.assign(db.sessions[sid], { status: 'open', playedAt: null }); addLog(e); emit(); } },
+    async deleteSession(sid, e) { delete db.sessions[sid]; Object.keys(db.signups).forEach(k => { if (db.signups[k].sessionId === sid) delete db.signups[k]; }); if (db.config.currentSessionId === sid) db.config.currentSessionId = ''; addLog(e); emit(); },
     async saveConfig(patch) { Object.assign(db.config, patch); emit(); },
     async setRating(n, name, r, e) { if (r) db.ratings[n] = r; else delete db.ratings[n]; addLog(e); emit(); },
     async setLevel(uid, level, e) { if (db.players[uid]) { db.players[uid].level = level; addLog(e); emit(); } },
@@ -953,7 +996,7 @@ function toast(msg, opts) {
 // A short buzz on phones for things that happen to you (ignored where unsupported).
 function buzz(pattern) { try { if (navigator.vibrate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(pattern || 40); } catch (e) {} }
 // Buttons whose action writes to the server show a waiting label and refuse double taps until the write settles.
-const BUSY_LABEL = { 'join': 'Saving…', 'leave-yes': 'Sending…', 'leave-cancel': 'Saving…', 'leave-approve': 'Saving…', 'leave-decline': 'Saving…', 'add-player': 'Adding…', 'ev-update': 'Saving…', 'ev-new-yes': 'Starting…', 'remove-yes': 'Removing…', 'done-yes': 'Saving…', 'reopen': 'Saving…', 'allpaid-yes': 'Saving…', 'roster-save': 'Saving…', 'account-rename': 'Saving…', 'account-password': 'Saving…', 'account-forgot': 'Sending…', 'auth-reset': 'Sending…', 'auth-login': 'Logging in…', 'auth-register': 'Creating…', 'auth-google': 'Opening Google…', 'profile-save': 'Saving…', 'setup-save': 'Saving…', 'clear-yes': 'Resetting…', 'skill-set': null };
+const BUSY_LABEL = { 'join': 'Saving…', 'leave-yes': 'Sending…', 'leave-cancel': 'Saving…', 'leave-approve': 'Saving…', 'leave-decline': 'Saving…', 'add-player': 'Adding…', 'ev-update': 'Saving…', 'ev-new-yes': 'Starting…', 'ev-delete-yes': 'Deleting…', 'remove-yes': 'Removing…', 'done-yes': 'Saving…', 'reopen': 'Saving…', 'allpaid-yes': 'Saving…', 'roster-save': 'Saving…', 'account-rename': 'Saving…', 'account-password': 'Saving…', 'account-forgot': 'Sending…', 'auth-reset': 'Sending…', 'auth-login': 'Logging in…', 'auth-register': 'Creating…', 'auth-google': 'Opening Google…', 'profile-save': 'Saving…', 'setup-save': 'Saving…', 'clear-yes': 'Resetting…', 'skill-set': null };
 function busyKey(el) { return el.dataset.act + '|' + (el.dataset.key || el.dataset.id || ''); }
 function applyBusy() {
   document.querySelectorAll('[data-busy]').forEach(el => { if (!S.busy.has(el.dataset.busy)) { if (el.dataset.busyText != null) el.textContent = el.dataset.busyText; el.disabled = el.dataset.busyWas === '1'; delete el.dataset.busy; delete el.dataset.busyText; delete el.dataset.busyWas; } });
@@ -1214,14 +1257,14 @@ function viewHTML() {
   if (ui.accountOpen && loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + accountPageHTML() + '</div>';
   if (ui.logOpen && isOrg()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + logPageHTML() + '</div>';
   if (ui.authOpen && !loggedIn()) return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + authHTML() + '</div>';
-  return bandHTML(vm) + '<div class="wrap">' + statusHTML(vm) + examplesHTML() + finalRosterHTML(vm) + meHTML(vm) + listsHTML(vm) + historyHTML(vm) + orgHTML(vm) + footerHTML(vm) + '</div>';
+  return bandHTML(vm) + '<div class="wrap">' + mapHTML(vm) + statusHTML(vm) + examplesHTML() + finalRosterHTML(vm) + meHTML(vm) + listsHTML(vm) + historyHTML(vm) + orgHTML(vm) + footerHTML(vm) + '</div>';
 }
 function bandHTML(vm) {
   const ev = vm.event; const title = S.cfg.title || 'Volleyball';
   if (!ev && vm.loading) return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + '</div><div class="ev-title">Loading…</div><div class="ev-meta">Getting the latest list.</div></div></header>';
   if (!ev) return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + '</div><div class="ev-title">No session scheduled yet</div><div class="ev-meta">The organizer will post the next date here.</div></div></header>';
   const taken = Math.min(vm.attendees.length, vm.capacity); const pct = vm.capacity ? Math.round(100 * taken / vm.capacity) : 0;
-  return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + (vm.played ? '<span class="tag">Played</span>' : '') + '</div><div class="ev-title">' + esc(fmtEventLong(ev)) + '</div><div class="ev-meta">' + esc([ev.time, ev.place, vm.roster && rosterCourtsOf(vm.roster) ? courtsLabel(rosterCourtsOf(vm.roster)) : (parseInt(ev.capacity, 10) > 0 ? '' : courtSummary(ev))].filter(Boolean).join(' · ')) + '</div>' +
+  return '<header class="band"><div class="in"><div class="kicker">' + esc(title) + (vm.played ? '<span class="tag">Played</span>' : '') + '</div><div class="ev-title">' + esc(fmtEventLong(ev)) + '</div><div class="ev-meta">' + esc([ev.time, ev.place, vm.roster && rosterCourtsOf(vm.roster) ? courtsLabel(rosterCourtsOf(vm.roster)) : (parseInt(ev.capacity, 10) > 0 ? '' : courtSummary(ev))].filter(Boolean).join(' · ')) + (mapsLink(ev) ? ' · <a class="maplink" href="' + esc(mapsLink(ev)) + '" target="_blank" rel="noopener">Map ↗</a>' : '') + '</div>' +
     '<div class="score"><div class="spots">' + taken + '<small> / ' + vm.capacity + '</small></div><div class="lbl">' + (vm.played ? 'played' : 'spots taken') + (vm.bench.length ? '<br>+' + vm.bench.length + (vm.benchCap != null ? ' of ' + vm.benchCap : '') + ' on the bench' : '') + '</div></div>' +
     '<div class="bar"><i style="width:' + pct + '%"></i></div></div></header>';
 }
@@ -1403,14 +1446,14 @@ function calStamp(d) { return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.ge
 function calRange(ev) { const start = eventDateObj(ev); if (!start) return null; const end = new Date(start.getTime() + (parseInt(ev.duration, 10) || 120) * 60e3); return { start, end }; }
 function googleCalLink(ev) {
   const r = calRange(ev); if (!r) return '';
-  const q = new URLSearchParams({ action: 'TEMPLATE', text: (S.cfg.title || 'Volleyball'), dates: calStamp(r.start) + '/' + calStamp(r.end), location: ev.place || '', details: [courtSummary(ev), ev.price ? ev.price + ' per person' : '', ev.note || '', S.cfg.pageUrl || ''].filter(Boolean).join('\n') });
+  const q = new URLSearchParams({ action: 'TEMPLATE', text: (S.cfg.title || 'Volleyball'), dates: calStamp(r.start) + '/' + calStamp(r.end), location: ev.place || '', details: [courtSummary(ev), ev.price ? ev.price + ' per person' : '', mapsLink(ev), ev.note || '', S.cfg.pageUrl || ''].filter(Boolean).join('\n') });
   return 'https://calendar.google.com/calendar/render?' + q.toString();
 }
 function icsText(ev) {
   const r = calRange(ev); if (!r) return '';
   const e = t => String(t).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Volleyball sign-up//EN', 'BEGIN:VEVENT', 'UID:' + (ev.id || randomHex(8)) + '@volleyball', 'DTSTAMP:' + stamp, 'DTSTART:' + calStamp(r.start), 'DTEND:' + calStamp(r.end), 'SUMMARY:' + e(S.cfg.title || 'Volleyball'), 'LOCATION:' + e(ev.place || ''), 'DESCRIPTION:' + e([courtSummary(ev), ev.price ? ev.price + ' per person' : '', ev.note || '', S.cfg.pageUrl || ''].filter(Boolean).join('\n')), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Volleyball sign-up//EN', 'BEGIN:VEVENT', 'UID:' + (ev.id || randomHex(8)) + '@volleyball', 'DTSTAMP:' + stamp, 'DTSTART:' + calStamp(r.start), 'DTEND:' + calStamp(r.end), 'SUMMARY:' + e(S.cfg.title || 'Volleyball'), 'LOCATION:' + e(ev.place || ''), 'DESCRIPTION:' + e([courtSummary(ev), ev.price ? ev.price + ' per person' : '', mapsLink(ev), ev.note || '', S.cfg.pageUrl || ''].filter(Boolean).join('\n')), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
 }
 function calendarHTML(ev) {
   const g = googleCalLink(ev); if (!g) return '';
@@ -1541,6 +1584,9 @@ function eventFormHTML(vm) {
     (cur ? '<div class="small muted">Current: ' + esc(fmtEventDate(cur)) + (cur.time ? ' ' + esc(cur.time) : '') + ' · ' + vm.attendees.length + ' signed up (' + vm.attendees.filter(p => p.paid).length + ' paid)</div>' : '<div class="small muted">No session yet. Fill this in and start one.</div>') +
     '<div class="grid2">' + dtField('evDate', 'Date', ev, ICON_CAL, 'date') + dtField('evTime', 'Time', ev, ICON_CLOCK, 'time') + '</div>' +
     '<div class="field"><label class="f" for="evPlace">Place</label><input class="inp" id="evPlace" data-ui="evPlace" value="' + esc(ev.place || '') + '" placeholder="Hall or beach court"></div>' +
+    '<div class="field"><label class="f" for="evMapUrl">Google Maps link <span class="muted">(optional)</span></label><div class="withpick"><input class="inp' + (ui.evBad && ui.evBad.evMapUrl ? ' bad' : '') + '" id="evMapUrl" data-ui="evMapUrl" type="url" inputmode="url" autocomplete="off" value="' + esc(ev.mapUrl || '') + '" placeholder="https://maps.app.goo.gl/…">' +
+      (ev.place ? '<a class="pick" href="' + esc('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(ev.place)) + '" target="_blank" rel="noopener" title="Find the place on Google Maps" aria-label="Find the place on Google Maps">' + ICON_PIN + '</a>' : '') + '</div>' +
+      (ui.evBad && ui.evBad.evMapUrl ? '<div class="fhint bad">Paste a full link starting with https:// (or coordinates like 52.52, 13.40).</div>' : '<div class="fhint">Open the place in Google Maps, tap Share, copy the link and paste it here (coordinates like 52.52, 13.40 work too). The map under the band and the announcement use it; without a link they use the place name.</div>') + '</div>' +
     '<div class="grid2"><div class="field"><label class="f" for="evVenueType">Indoor / outdoor</label><select class="inp" id="evVenueType" data-ui="evVenueType"><option value=""' + (!ev.venueType ? ' selected' : '') + '>–</option><option value="indoor"' + (ev.venueType === 'indoor' ? ' selected' : '') + '>Indoor</option><option value="outdoor"' + (ev.venueType === 'outdoor' ? ' selected' : '') + '>Outdoor</option></select></div><div class="field"><label class="f" for="evFormats">Games <span class="muted">(for the announcement)</span></label><input class="inp" id="evFormats" data-ui="evFormats" value="' + esc(ev.formats || '') + '" placeholder="e.g. 3v3 / 4v4"></div></div>' +
     '<div class="grid3"><div class="field"><label class="f" for="evCap">Roster <span class="muted">(players)</span></label><input class="inp" id="evCap" data-ui="evCap" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="' + esc(ev.cap == null ? 14 : ev.cap) + '"></div><div class="field"><label class="f" for="evBench">Bench <span class="muted">(max.)</span></label><input class="inp" id="evBench" data-ui="evBench" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="' + esc(ev.bench == null ? 4 : ev.bench) + '"></div><div class="field"><label class="f" for="evPrice">Price per person</label><input class="inp" id="evPrice" data-ui="evPrice" value="' + esc(ev.price || '') + '" placeholder="8 €"></div></div>' +
     '<div class="grid2">' + dtField('evOpensAt', 'Sign-ups open at <span class="muted">(optional)</span>', ev, ICON_CAL, 'datetime-local') + '<div class="field"><label class="f" for="evDuration">Duration (minutes)</label><input class="inp" id="evDuration" data-ui="evDuration" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="' + esc(ev.duration || 120) + '"></div></div>' +
@@ -1551,7 +1597,7 @@ function eventFormHTML(vm) {
     '<div class="actions">' + (cur ? '<button type="button" class="btn sm" data-act="ev-update"' + (!ui.evDirty || cap % 2 || evFormBad() ? ' disabled' : '') + '>Update this session</button>' + (ui.evDirty ? '<span class="pill dirty">Unsaved changes</span>' : '') : '') +
     (ui.newConfirm ? '<span class="small">Start a new session? The current list and payments move to Past sessions.</span><button type="button" class="btn sm danger" data-act="ev-new-yes"' + (cap % 2 || evFormBad() ? ' disabled' : '') + '>Start new</button><button type="button" class="btn sm ghost" data-act="ev-new-no">Cancel</button>' : '<button type="button" class="btn sm ' + (cur ? 'outline' : '') + '" data-act="ev-new-ask"' + (cap % 2 || evFormBad() ? ' disabled' : '') + '>' + (cur ? (vm.played ? 'Start the next session' : 'New session (resets the list)') : 'Start the session') + '</button>') +
     (cur || vm.history.length ? '<button type="button" class="btn sm ghost" data-act="ev-copy-last">Same as last time, +7 days</button>' : '') +
-    '</div>' + (cur ? playedControlsHTML(vm) : '') + '</div>' + (cur && !vm.played ? announceHTML(vm) : '') + (cur ? paymentsHTML(vm) : '');
+    '</div>' + (cur ? playedControlsHTML(vm) + deleteControlsHTML(vm) : '') + '</div>' + (cur && !vm.played ? announceHTML(vm) : '') + (cur ? paymentsHTML(vm) : '');
 }
 function announceDate(ev) { const d = eventDateObj(ev); if (!d) return ev.date || ''; return d.toLocaleDateString('en-GB', { weekday: 'long' }) + ', ' + d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }); }
 function announceFormats(vm) {
@@ -1565,6 +1611,7 @@ function announceText(vm) {
   L.push('');
   L.push('📅 ' + announceDate(ev) + (ev.time ? ' · ' + ev.time : ''));
   const venue = [ev.place, ev.venueType === 'indoor' ? 'Indoor' : (ev.venueType === 'outdoor' ? 'Outdoor' : '')].filter(Boolean).join(' · '); if (venue) L.push('📍 ' + venue);
+  const ml = mapsLink(ev); if (ml) L.push('🗺️ ' + ml);
   const fm = announceFormats(vm); L.push('🏐 Mixed games' + (fm ? ' · ' + fm : ''));
   L.push('👥 ' + vm.capacity + ' spots');
   const pn = priceNumber(ev.price); if (ev.price) L.push('💶 ' + (pn ? fmtMoney(pn, '').trim() + ' EUR' : ev.price) + ' per person');
@@ -1572,7 +1619,7 @@ function announceText(vm) {
   L.push('Spots are filled in sign-up order. If we’re full, we’ll add you to the waitlist. If a spot opens up, we’ll contact the next person on the list.');
   const o = opensAtDate(ev); const extra = [];
   if (S.cfg.pageUrl) extra.push('👉 Sign up: ' + S.cfg.pageUrl);
-  if (o && o.getTime() > now()) extra.push('⏰ Sign-ups open ' + fmtWhen(o));
+  if (o) extra.push(o.getTime() > now() ? '⏰ Sign-ups open ' + fmtWhen(o) : '⏰ Sign-ups are open (since ' + fmtWhen(o) + ')');
   if (ev.note) extra.push(ev.note);
   if (extra.length) { L.push(''); extra.forEach(x => L.push(x)); }
   return L.join('\n');
@@ -1611,6 +1658,12 @@ function paymentsHTML(vm) {
   return '<div class="sub"><h2 class="sec">Payments</h2>' + summary + claimsHTML + '<div class="small muted">Still to pay: ' + esc(unpaid.map(p => p.name).join(', ')) + '</div>' +
     '<div class="actions"><a class="btn sm outline" href="https://wa.me/?text=' + encodeURIComponent(t) + '" target="_blank" rel="noopener">Remind on WhatsApp</a><button type="button" class="btn sm ghost" data-act="reminder-copy">Copy reminder</button>' + mail + '</div>' +
     '<div class="actions">' + all + '</div></div>';
+}
+// Deleting the current session for good (open or played): its list, payments and roster go with it.
+function deleteControlsHTML(vm) {
+  const ui = U(); if (!vm.eventId) return '';
+  if (ui.delConfirm) return '<div class="note warn"><div class="stack"><span>Delete this session for good? Its list, payments and teams are removed and it will not appear in Past sessions. Only the activity log keeps a line about it.' + (vm.attendees.length ? ' ' + vm.attendees.length + ' sign-up' + (vm.attendees.length === 1 ? '' : 's') + ' will be deleted.' : '') + '</span><span class="actions"><button type="button" class="btn sm danger" data-act="ev-delete-yes">Delete this session</button><button type="button" class="btn sm ghost" data-act="ev-delete-no">Cancel</button></span></div></div>';
+  return '<div class="actions"><button type="button" class="btn xs ghost" data-act="ev-delete-ask">Delete this session…</button></div>';
 }
 function playedControlsHTML(vm) {
   const ui = U();
@@ -1698,7 +1751,7 @@ function setupHTML() {
 }
 /* ---- activity log (organizers) ---- */
 const LOG_LIMIT = 400;
-const LOG_GROUPS = { joins: ['join', 'rejoin', 'org-add'], leaves: ['leave', 'leave-request', 'leave-cancel', 'leave-approved', 'leave-declined', 'org-remove'], org: ['paid', 'unpaid', 'paid-claim', 'paid-unclaim', 'noshow', 'noshow-undo', 'played', 'reopened', 'session-create', 'session-update', 'roster', 'level', 'rating', 'org-restore'], account: ['register', 'rename', 'account-delete'] };
+const LOG_GROUPS = { joins: ['join', 'rejoin', 'org-add'], leaves: ['leave', 'leave-request', 'leave-cancel', 'leave-approved', 'leave-declined', 'org-remove'], org: ['paid', 'unpaid', 'paid-claim', 'paid-unclaim', 'noshow', 'noshow-undo', 'played', 'reopened', 'session-create', 'session-update', 'session-delete', 'roster', 'level', 'rating', 'org-restore'], account: ['register', 'rename', 'account-delete'] };
 function logLine(e, plain) {
   const t = plain ? (x => String(x)) : esc; const b = plain ? (x => x) : (x => '<b>' + x + '</b>');
   const n = b(t(e.name || '?')), by = t(e.byName || 'an organizer'), dt = e.detail ? t(e.detail) : '';
@@ -1719,6 +1772,7 @@ function logLine(e, plain) {
     case 'played': return by + ' marked the session as played' + (dt ? ' · ' + dt : '');
     case 'reopened': return by + ' reopened the session';
     case 'session-create': return by + ' started the session' + (dt ? ' · ' + dt : '');
+    case 'session-delete': return by + ' deleted the session' + (dt ? ' · ' + dt : '');
     case 'session-update': return by + ' changed the session' + (dt ? ': ' + dt : '');
     case 'roster': return by + ' saved the teams';
     case 'level': return by + ' set the level of ' + n + (dt ? ': ' + dt : '');
@@ -1787,8 +1841,8 @@ function syncEventForm() {
   const ui = U(); const ev = S.vm.event;
   if (ui.evDirty) return;
   ui.evRaw = {}; ui.evBad = {};
-  if (ev) { const b = benchCapOf(ev); ui.ev = { date: ev.date || '', time: ev.time || '', place: ev.place || '', venueType: ev.venueType || '', formats: ev.formats || '', cap: capacityOf(ev) || 14, bench: b == null ? '' : b, price: ev.price || '', note: ev.note || '', opensAt: ev.opensAt || '', duration: ev.duration || 120 }; }
-  else if (!ui.ev) ui.ev = { date: '', time: '19:00', place: '', venueType: '', formats: '', cap: 14, bench: 4, price: '', note: '', opensAt: '', duration: 120 };
+  if (ev) { const b = benchCapOf(ev); ui.ev = { date: ev.date || '', time: ev.time || '', place: ev.place || '', mapUrl: ev.mapUrl || '', venueType: ev.venueType || '', formats: ev.formats || '', cap: capacityOf(ev) || 14, bench: b == null ? '' : b, price: ev.price || '', note: ev.note || '', opensAt: ev.opensAt || '', duration: ev.duration || 120 }; }
+  else if (!ui.ev) ui.ev = { date: '', time: '19:00', place: '', mapUrl: '', venueType: '', formats: '', cap: 14, bench: 4, price: '', note: '', opensAt: '', duration: 120 };
 }
 
 /* ================= actions ================= */
@@ -1796,12 +1850,12 @@ function newEventId(date) {
   const base = date || localDateStr(new Date()); const ids = new Set((S.data.sessions || []).map(s => s.id));
   if (!ids.has(base)) return base; let i = 2; while (ids.has(base + '-' + i)) i++; return base + '-' + i;
 }
-function evFormBad() { const ui = U(); const bad = ui.evBad || {}; return !!(bad.evDate || bad.evTime || bad.evOpensAt) || !(ui.ev && ui.ev.date) || !(ui.ev && ui.ev.time); }
+function evFormBad() { const ui = U(); const bad = ui.evBad || {}; return !!(bad.evDate || bad.evTime || bad.evOpensAt || bad.evMapUrl) || !(ui.ev && ui.ev.date) || !(ui.ev && ui.ev.time); }
 function eventFields() { const p = eventPayload(''); delete p.id; return p; }
 function eventPayload(id) {
   const e = U().ev || {}; const cap = uiCap(e) || 8; const bench = uiBench(e);
   const dur = Math.min(600, Math.max(30, parseInt(e.duration, 10) || 120));
-  return { id, date: e.date || localDateStr(new Date()), time: e.time || '', place: normName(e.place), venueType: e.venueType === 'indoor' || e.venueType === 'outdoor' ? e.venueType : '', formats: String(e.formats || '').replace(/\s+/g, ' ').trim().slice(0, 40), capacity: cap, benchCap: bench, price: normName(e.price), note: normName(e.note), opensAt: (e.opensAt || '').trim(), duration: dur };
+  return { id, date: e.date || localDateStr(new Date()), time: e.time || '', place: normName(e.place), mapUrl: String(e.mapUrl || '').trim().slice(0, 500), venueType: e.venueType === 'indoor' || e.venueType === 'outdoor' ? e.venueType : '', formats: String(e.formats || '').replace(/\s+/g, ' ').trim().slice(0, 40), capacity: cap, benchCap: bench, price: normName(e.price), note: normName(e.note), opensAt: (e.opensAt || '').trim(), duration: dur };
 }
 // The current list as plain text (for WhatsApp).
 function listText(vm) {
@@ -1821,7 +1875,7 @@ const benchText = b => b == null ? 'unlimited' : String(b);
 function sessionDiff(before, after) {
   const b = before || {}; const out = [];
   const cmp = (label, x, y) => { x = x == null ? '' : String(x); y = y == null ? '' : String(y); if (x !== y) out.push(label + ' ' + (x || '–') + ' → ' + (y || '–')); };
-  cmp('date', b.date, after.date); cmp('time', b.time, after.time); cmp('place', b.place, after.place);
+  cmp('date', b.date, after.date); cmp('time', b.time, after.time); cmp('place', b.place, after.place); cmp('map link', b.mapUrl, after.mapUrl);
   cmp('roster', capacityOf(b), after.capacity); cmp('bench', benchText(benchCapOf(b)), benchText(after.benchCap)); cmp('price', b.price, after.price); cmp('opens', (b.opensAt || '').replace('T', ' '), (after.opensAt || '').replace('T', ' '));
   cmp('duration', b.duration, after.duration); cmp('note', b.note, after.note); cmp('venue', b.venueType, after.venueType); cmp('games', b.formats, after.formats);
   return out.join('; ');
@@ -1995,12 +2049,20 @@ const actions = {
   },
   'noshow-toggle': async (el) => { const k = el.dataset.key; const p = S.vm.people.get(k); if (!p) return; await run(() => B.updateSignup(k, { noshow: !p.noshow }, logEntryFor(p, p.noshow ? 'noshow-undo' : 'noshow')), 'org'); },
   'reopen': async () => { if (!S.vm.eventId) return; await run(() => B.reopen(S.vm.eventId, { type: 'reopened', sessionId: S.vm.eventId }), 'org'); },
+  'ev-delete-ask': () => { U().delConfirm = true; render(); },
+  'ev-delete-no': () => { U().delConfirm = false; render(); },
+  'ev-delete-yes': async () => {
+    const ui = U(); const id = S.vm.eventId; if (!id) return; const ev = S.vm.event; const n = S.vm.attendees.length;
+    ui.delConfirm = false; ui.newConfirm = false; ui.doneConfirm = false; ui.evDirty = false; ui.ev = null; ui.roster = { mode: 'closed', sel: null, id: null, rc: null };
+    await run(() => B.deleteSession(id, { type: 'session-delete', sessionId: id, detail: sessionLabel(ev) + (n ? ' · ' + n + ' sign-up' + (n === 1 ? '' : 's') : '') }), 'org');
+    if (!S.err) toast('Session deleted' + (ev ? ': ' + fmtEventDate(ev) : '') + '.', { ms: 4000 });
+  },
   'ev-copy-last': () => {
     const src = S.vm.event || (S.vm.history.length ? S.vm.history[S.vm.history.length - 1].event : null); if (!src) return;
     const bc = benchCapOf(src); const d = eventDateObj(src) || new Date(); const next = new Date(d); next.setDate(next.getDate() + 7);
     let opensAt = '';
     if (src.opensAt) { const o = new Date(src.opensAt); if (!isNaN(o)) { o.setDate(o.getDate() + 7); opensAt = localDateStr(o) + 'T' + pad(o.getHours()) + ':' + pad(o.getMinutes()); } }
-    U().ev = { date: localDateStr(next), time: src.time || '', place: src.place || '', venueType: src.venueType || '', formats: src.formats || '', cap: capacityOf(src) || 14, bench: bc == null ? '' : bc, price: src.price || '', note: src.note || '', opensAt, duration: src.duration || 120 };
+    U().ev = { date: localDateStr(next), time: src.time || '', place: src.place || '', mapUrl: src.mapUrl || '', venueType: src.venueType || '', formats: src.formats || '', cap: capacityOf(src) || 14, bench: bc == null ? '' : bc, price: src.price || '', note: src.note || '', opensAt, duration: src.duration || 120 };
     U().evDirty = true; render(); toast('Filled in from the last session. Check it, then start the new session.');
   },
   'announce-copy': () => copyText(announceText(S.vm)),
@@ -2136,7 +2198,7 @@ function handleInput(el) {
     const id = k.slice(0, -4); const spec = EV_DT[id]; ui.ev = ui.ev || {}; ui.evRaw = ui.evRaw || {}; ui.evBad = ui.evBad || {};
     const iso = String(v || ''); ui.ev[spec.f] = spec.kind === 'dt' ? iso.slice(0, 16) : iso; delete ui.evRaw[id]; ui.evBad[id] = false; ui.evDirty = true; render(); return;
   }
-  if (k.startsWith('ev')) { const f = k.slice(2, 3).toLowerCase() + k.slice(3); ui.ev = ui.ev || {}; ui.ev[f] = v; const wasDirty = ui.evDirty; ui.evDirty = true; if (!wasDirty || k === 'evCap' || k === 'evBench') { render(); return; } const cp = $('#capPreview'); if (cp) cp.textContent = uiCap(ui.ev); const bp = $('#benchPreview'); if (bp) { const b = uiBench(ui.ev); bp.innerHTML = b == null ? 'anyone can wait on the bench' : 'up to <b>' + b + '</b> wait on the bench'; } return; }
+  if (k.startsWith('ev')) { const f = k.slice(2, 3).toLowerCase() + k.slice(3); ui.ev = ui.ev || {}; ui.ev[f] = v; const wasDirty = ui.evDirty; ui.evDirty = true; if (k === 'evMapUrl') { ui.evBad = ui.evBad || {}; const t = String(v).trim(); ui.evBad.evMapUrl = !!t && !/^https?:\/\/\S+$/i.test(t) && !COORDS_RE.test(t); } if (!wasDirty || k === 'evCap' || k === 'evBench' || k === 'evPlace' || k === 'evMapUrl') { render(); return; } const cp = $('#capPreview'); if (cp) cp.textContent = uiCap(ui.ev); const bp = $('#benchPreview'); if (bp) { const b = uiBench(ui.ev); bp.innerHTML = b == null ? 'anyone can wait on the bench' : 'up to <b>' + b + '</b> wait on the bench'; } return; }
   if (/^rc\dv\d$/.test(k)) { const r = ui.roster; r.rc = r.rc || countsOf([]); r.rc[k.slice(2)] = Math.min(12, Math.max(0, parseInt(v, 10) || 0)); render(); return; }
   if (k === 'pairsTogether' || k === 'pairsApart') {
     S.pairs[k === 'pairsTogether' ? 'together' : 'apart'] = v; clearTimeout(pairsTimer);

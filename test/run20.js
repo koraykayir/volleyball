@@ -12,14 +12,14 @@ const CFG = '<script id="vb-config" type="application/json">{"firebase":{"apiKey
   const html = fs.readFileSync(SRC, 'utf8'); const p = path.join(__dirname, 'fb20.html'); fs.writeFileSync(p, html.replace('<script id="vb-config" type="application/json">{}</script>', CFG));
   const browser = await chromium.launch(); const ctx = await browser.newContext({ viewport: { width: 390, height: 900 } });
   await ctx.addInitScript(FAKE); await ctx.addInitScript(RULES);
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript(() => { if (window.top !== window) return;
     const f = window.__fake; const d = new Date(); d.setDate(d.getDate() + 1); const id = d.toISOString().slice(0, 10);
     f.seed('admins/organizer@example.com', {}); f.seed('config/app', { title: 'T', organizer: 'Gürkan', currentSessionId: id });
     f.seed('sessions/' + id, { date: id, time: '19:00', place: 'X', capacity: 16, benchCap: 4, status: 'open', createdAt: new f.Timestamp(1), startsAtTs: new f.Timestamp(d.getTime()), duration: 120, roster: null, summary: null, playedAt: null });
     for (let i = 0; i < 18; i++) { const uid = 'u' + i, name = 'Player ' + String(i + 1).padStart(2, '0'); f.seed('players/' + uid, { name, level: 1 + (i % 5), email: uid + '@example.com', createdAt: new f.Timestamp(1) }); f.seed('names/' + name.toLowerCase(), { uid, name });
       f.seed('signups/' + id + '_' + uid, Object.assign({ sessionId: id, name, uid, createdAt: new f.Timestamp(1000 + i), status: 'active', paid: false, noshow: false, guestOf: '', addedBy: 'self' }, i < 12 ? { paidClaimedAt: new f.Timestamp(2000 + i) } : {})); }
   });
-  const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); await page.route('**/cdn.jsdelivr.net/**', r => r.abort());
+  const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); await page.route('**/cdn.jsdelivr.net/**', r => r.abort()); await page.route('**/maps.google.com/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>map</title>' }));
   await page.goto('file://' + p); await sleep(300);
   const dump = () => page.evaluate(() => window.__fake.dump());
   const denials = () => page.evaluate(() => (window.__fake.denials || []).map(d => d.join(' + ')));

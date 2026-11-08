@@ -1,4 +1,4 @@
-# Test report · Version 1.0 (builds v19 → v24) · 6–8 November 2026
+# Test report · Version 1.0 (builds v19 → v25) · 6–8 November 2026
 
 All automated suites run in Chromium (Playwright) against the built page, with an in-memory stand-in for
 Firebase (Firestore + Auth) that reproduces server timestamps, batches, live snapshots and pending writes.
@@ -98,6 +98,14 @@ typing, a hint and a disabled save button for invalid values, ISO input tolerate
 |---|---|---|
 | run21 | typing digits into every numeric box (caret at the end, 38 stays 38), dates/times typed with and without separators, backspace never re-adds separators, invalid dates (31-02-2026, 25:00) flagged and blocking, dots and single digits accepted, pickers, presets, saved session carries ISO values, band shows the date, court counts | 26 |
 | all other suites | unchanged, 0 failures | 651 |
+
+## Build v25 (8 November): delete a session, Google Maps
+
+| Suite | Covers | Checks |
+|---|---|---|
+| run22 | organizer deletes the current session (open and played): confirm step with the number of sign-ups, cancel, sign-ups removed in batches within the rule look-up limit, config cleared, history untouched, log line, "No session scheduled yet", a new session afterwards; players never see the button | 15 |
+| run23 | Google Maps link: pin to search the place, validation (https:// or coordinates), stored on the session, "Map ↗" in the band, 🗺️ and ⏰ lines in the announcement (opening time ahead and past), calendar entries, log diff, next week's session keeps it, map snippet under the band centred on coordinates from a pasted link / typed coordinates / the place name, no snippet on the account, log and sign-up views | 23 |
+| all suites after v25 | 27 suites | 826 checks, 0 failures |
 
 **Order matters for this one: publish the v21 rules first, then deploy the page.** The v20 page works with the v21
 rules; the v21 page with the old rules would refuse new registrations and renames of names with non-ASCII letters

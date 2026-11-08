@@ -12,13 +12,13 @@ const CFG = '<script id="vb-config" type="application/json">{"firebase":{"apiKey
   const html = fs.readFileSync(SRC, 'utf8'); const p = path.join(__dirname, 'fb18.html'); fs.writeFileSync(p, html.replace('<script id="vb-config" type="application/json">{}</script>', CFG));
   const browser = await chromium.launch(); const ctx = await browser.newContext({ viewport: { width: 390, height: 900 } });
   await ctx.addInitScript(FAKE); await ctx.addInitScript(RULES);
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript(() => { if (window.top !== window) return;
     const f = window.__fake; const d = new Date(); d.setDate(d.getDate() + 2); const id = d.toISOString().slice(0, 10);
     f.seed('admins/organizer@example.com', {}); f.seed('config/app', { title: 'Volley Berlin | Beachvolleyball', organizer: 'Gürkan', pageUrl: 'https://koraykayir.github.io/volleyball/', currentSessionId: id });
     f.seed('sessions/' + id, { date: id, time: '19:00', place: 'Beach Mitte', venueType: 'outdoor', formats: '4v4', capacity: 8, benchCap: 4, price: '8 €', status: 'open', createdAt: new f.Timestamp(1), startsAtTs: new f.Timestamp(d.getTime()), duration: 120, roster: null, summary: null, playedAt: null });
     f.seed('players/pd', { name: 'Doğukan', level: 3, email: 'dogukan@example.com', createdAt: new f.Timestamp(1) }); f.seed('names/doğukan', { uid: 'pd', name: 'Doğukan' }); f.seedAccount('dogukan@example.com', { uid: 'pd', name: 'Doğukan', provider: 'password', pw: 'secret12' });
   });
-  const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); await page.route('**/cdn.jsdelivr.net/**', r => r.abort());
+  const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); await page.route('**/cdn.jsdelivr.net/**', r => r.abort()); await page.route('**/maps.google.com/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>map</title>' }));
   await page.goto('file://' + p); await sleep(300);
   const dump = () => page.evaluate(() => window.__fake.dump());
   const denials = () => page.evaluate(() => (window.__fake.denials || []).map(d => d.join(' + ')));

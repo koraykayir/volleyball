@@ -10,8 +10,8 @@ let fails = 0; const check = (n, c, x) => { if (c) console.log('ok   ' + n); els
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const browser = await chromium.launch(); const ctx = await browser.newContext({ viewport: { width: 390, height: 900 }, deviceScaleFactor: 2 });
-  const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); await page.route('**/cdn.jsdelivr.net/**', r => r.abort());
-  await page.addInitScript(() => { if (sessionStorage.getItem('seeded')) return; sessionStorage.setItem('seeded', '1'); localStorage.setItem('vb.localdb', JSON.stringify({ example: false, config: { title: 'T', organizer: 'G', currentSessionId: '' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, accounts: {}, pairs: { together: '', apart: '' }, log: {} })); localStorage.setItem('vb.localAdmin', 'true'); });
+  const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); await page.route('**/cdn.jsdelivr.net/**', r => r.abort()); await page.route('**/maps.google.com/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>map</title>' }));
+  await page.addInitScript(() => { if (window.top !== window) return; if (sessionStorage.getItem('seeded')) return; sessionStorage.setItem('seeded', '1'); localStorage.setItem('vb.localdb', JSON.stringify({ example: false, config: { title: 'T', organizer: 'G', currentSessionId: '' }, sessions: {}, signups: {}, contacts: {}, ratings: {}, players: {}, accounts: {}, pairs: { together: '', apart: '' }, log: {} })); localStorage.setItem('vb.localAdmin', 'true'); });
   await page.goto('file://' + SRC); await sleep(300);
   const typeInto = async (sel, text) => { await page.click(sel); await page.keyboard.press('End'); for (const ch of text) { await page.keyboard.type(ch); await sleep(40); } };
   const clearField = async sel => { await page.click(sel); await page.keyboard.press('Control+A'); await page.keyboard.press('Backspace'); await sleep(40); };
@@ -74,6 +74,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.evaluate(() => { const f = window.__vb; const d = JSON.parse(localStorage.getItem('vb.localdb')); const id = d.config.currentSessionId; d.sessions[id].opensAt = ''; for (let i = 0; i < 38; i++) { const uid = 'p' + i; d.players[uid] = { name: 'P' + i, level: 1 + i % 5, email: '' }; d.signups[id + '_' + uid] = { id: id + '_' + uid, sessionId: id, name: 'P' + i, uid, createdAt: Date.now() + i, status: 'active', paid: true, noshow: false, guestOf: '', addedBy: 'self' }; } localStorage.setItem('vb.localdb', JSON.stringify(d)); });
   await page.reload(); await sleep(400);
   if (!(await page.$('[data-act="roster-open"]'))) console.log('ORG BUTTONS', await page.$$eval('.org [data-act]', els => [...new Set(els.map(e => e.dataset.act))].join(' ')));
+  const ro = await page.waitForSelector('[data-act="roster-open"]', { timeout: 5000 }).catch(() => null);
+  if (!ro || await ro.evaluate(el => el.disabled)) console.log('ROSTER BUTTON', ro ? await ro.evaluate(el => el.outerHTML) : 'missing', '| rows', (await page.$$('.row')).length, '| band', (await page.textContent('.band')).slice(0, 80));
   await page.click('[data-act="roster-open"]'); await sleep(200);
   const rcSel = (await page.$('#rc4v4')) ? '#rc4v4' : (await page.$$eval('input[id^="rc"]', els => els[0] && '#' + els[0].id));
   await clearField(rcSel); await typeInto(rcSel, '12');

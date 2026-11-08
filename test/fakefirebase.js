@@ -1,5 +1,5 @@
 // Minimal in-memory stand-in for the Firebase compat SDK (app, auth, firestore) used by the page.
-(function () {
+if (window.top !== window) { /* frames (the map embed) don't get the stand-in */ } else (function () {
   const SERVER_TS = { __ts: true }; const DELETE = { __del: true };
   class Timestamp { constructor(ms, ns) { this.ms = ms; this.seconds = Math.floor(ms / 1000); this.nanoseconds = ns != null ? ns : (ms % 1000) * 1e6; } toMillis() { return this.ms; } toDate() { return new Date(this.ms); } static fromDate(d) { return new Timestamp(d.getTime()); } static now() { return new Timestamp(Date.now()); } }
   const store = new Map(); // path -> data
